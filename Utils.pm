@@ -2,9 +2,9 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.30 2003/11/30 06:47:26 don Exp $
+# $Id: Utils.pm,v 1.33 2004/02/16 07:38:25 don Exp $
 
-# Copyright (c) 2003 Don Owens
+# Copyright (c) 2003-2004 Don Owens
 
 # All rights reserved. This program is free software; you can
 # redistribute it and/or modify it under the same terms as Perl
@@ -77,7 +77,7 @@ use strict;
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.04'; # update below in POD as well
+        $VERSION = '0.05'; # update below in POD as well
     }
 
     require Exporter;
@@ -85,11 +85,14 @@ use strict;
     @EXPORT = ();
     @EXPORT_OK = qw(urlEncode urlDecode urlEncodeVars urlDecodeVars getSelfRefHostUrl
                     getSelfRefUrl getSelfRefUrlWithQuery getSelfRefUrlDir addParamsToUrl
-                    getParsedCookies);
+                    getParsedCookies escapeHtml escapeHtmlFormValue convertRelativeUrlWithParams
+                    convertRelativeUrlWithArgs getSelfRefUri);
     $EXPORT_TAGS{all_utils} = [ qw(urlEncode urlDecode urlEncodeVars urlDecodeVars
                                    getSelfRefHostUrl
                                    getSelfRefUrl getSelfRefUrlWithQuery getSelfRefUrlDir
-                                   addParamsToUrl getParsedCookies)
+                                   addParamsToUrl getParsedCookies escapeHtml escapeHtmlFormValue
+                                   convertRelativeUrlWithParams convertRelativeUrlWithArgs
+                                   getSelfRefUri)
                               ];
 
 =pod
@@ -200,6 +203,42 @@ use strict;
         return wantarray ? ($var_hash, $var_order) : $var_hash;
     }
 
+=head2 escapeHtml($text)
+
+ Escapes the given text so that it is not interpreted as HTML.
+
+=cut
+    # added for v0.05
+    sub escapeHtml {
+        my ($self, $text) = @_;
+        return undef unless defined $text;
+        
+        $text =~ s/\&/\&amp;/g;
+        $text =~ s/</\&lt;/g;
+        $text =~ s/>/\&gt;/g;
+        $text =~ s/\"/\&quot;/g;
+        $text =~ s/\$/\&dol;/g;
+
+        return $text;
+    }
+
+=head2 escapeHtmlFormValue($text)
+
+ Escapes the given text so that it is valid to put in a form
+ field.
+
+=cut
+    # added for v0.05
+    sub escapeHtmlFormValue {
+        my ($self, $str) = @_;
+        $str =~ s/\"/&quot;/g;
+        $str =~ s/>/&gt;/g;
+        $str =~ s/</&lt;/g;
+        
+        return $str;
+    }
+
+
 =pod
 
 =head2 getSelfRefHostUrl()
@@ -231,6 +270,18 @@ use strict;
 
 =pod
 
+=head2 getSelfRefUri()
+
+ Returns the current URI.
+
+=cut
+    sub getSelfRefUri {
+        my ($self) = @_;
+        return $ENV{SCRIPT_NAME};
+    }
+
+=pod
+
 =head2 getSelfRefUrlWithQuery()
 
  Returns a url referencing the current script along with any
@@ -257,6 +308,39 @@ use strict;
         $url =~ s{/[^/]+$}{};
         return $url;
     }
+
+=pod
+
+=head2 convertRelativeUrlWithParams($relative_url, $params)
+
+ Converts a relative URL to an absolute one based on the current
+ URL, then adds the parameters in the given hash $params as a
+ query string.
+
+=cut
+    # Takes $rel_url as a url relative to the current directory,
+    # e.g., a script name, and adds the given cgi params to it.
+    # added for v0.05
+    sub convertRelativeUrlWithParams {
+        my ($self, $rel_url, $args) = @_;
+        my $host_url = $self->getSelfRefHostUrl;
+        my $uri = $ENV{SCRIPT_NAME};
+        $uri =~ s{^(.+?)\?.*$}{$1};
+        $uri =~ s{/[^/]+$}{};
+
+        if ($rel_url =~ m{^/}) {
+            $uri = $rel_url;
+        } else {
+            while ($rel_url =~ m{^\.\./}) {
+                $rel_url =~ s{^\.\./}{}; # pop dir off front
+                $uri =~ s{/[^/]+$}{}; # pop dir off end
+            }
+            $uri .= '/' . $rel_url;
+        }
+
+        return $self->addParamsToUrl($host_url . $uri, $args);
+    }
+    *convertRelativeUrlWithArgs = \&convertRelativeUrlWithParams;
 
 =pod
 
@@ -707,7 +791,7 @@ __END__
 
 =head1 COPYRIGHT
 
- Copyright (c) 2003 Don Owens
+ Copyright (c) 2003-2004 Don Owens
 
  All rights reserved. This program is free software; you can
  redistribute it and/or modify it under the same terms as Perl
@@ -715,6 +799,6 @@ __END__
 
 =head1 VERSION
 
- 0.04
+ 0.05
 
 =cut

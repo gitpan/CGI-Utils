@@ -68,6 +68,13 @@ METHODS
      and a reference to an array of field names in the order they
      appear in the query string.
 
+  escapeHtml($text)
+     Escapes the given text so that it is not interpreted as HTML.
+
+  escapeHtmlFormValue($text)
+     Escapes the given text so that it is valid to put in a form
+     field.
+
   getSelfRefHostUrl()
      Returns a url referencing top level directory in the current
      domain, e.g., http://mydomain.com
@@ -76,12 +83,20 @@ METHODS
      Returns a url referencing the current script (without any query
      string).
 
+  getSelfRefUri()
+     Returns the current URI.
+
   getSelfRefUrlWithQuery()
      Returns a url referencing the current script along with any
      query string parameters passed via a GET method.
 
   getSelfRefUrlDir()
      Returns a url referencing the directory part of the current url.
+
+  convertRelativeUrlWithParams($relative_url, $params)
+     Converts a relative URL to an absolute one based on the current
+     URL, then adds the parameters in the given hash $params as a
+     query string.
 
   addParamsToUrl($url, $param_hash)
      Takes a url and reference to a hash of parameters to be added
@@ -135,12 +150,12 @@ AUTHOR
      Don Owens <don@owensnet.com>
 
 COPYRIGHT
-     Copyright (c) 2003 Don Owens
+     Copyright (c) 2003-2004 Don Owens
 
      All rights reserved. This program is free software; you can
      redistribute it and/or modify it under the same terms as Perl
      itself.
 
 VERSION
-     0.04
+     0.05
 

@@ -3,7 +3,7 @@
 # Creation date: 2003-08-13 22:27:32
 # Authors: Don
 # Change log:
-# $Id: 02url.t,v 1.3 2003/09/21 17:40:02 don Exp $
+# $Id: 02url.t,v 1.5 2004/02/16 07:38:02 don Exp $
 
 use strict;
 use Carp;
@@ -13,7 +13,7 @@ use Carp;
     local($SIG{__DIE__}) = sub { &Carp::cluck(); exit 0 };
 
     use Test;
-    BEGIN { plan tests => 9 }
+    BEGIN { plan tests => 12 }
 
     use CGI::Utils;
 
@@ -104,6 +104,18 @@ use Carp;
        or $rv4 eq $want4_22 or $rv4 eq $want4_23 or $rv4 eq $want4_24
       );
 
+    my $rel_url = 'doit.cgi';
+    my $url = $utils->convertRelativeUrlWithParams($rel_url, { 's' => 1 });
+    my $want = 'https://mydomain.com/cgi-bin/doit.cgi?s=1';
+    ok($url eq $want);
+
+    $rel_url = '../doit.cgi';
+    $url = $utils->convertRelativeUrlWithParams($rel_url, { 's' => 1 });
+    $want = 'https://mydomain.com/doit.cgi?s=1';
+    ok($url eq $want);
+
+    my $uri = $utils->getSelfRefUri;
+    ok($uri eq '/cgi-bin/test.cgi');
 }
 
 exit 0;
