@@ -1,9 +1,9 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -w
 
 # Creation date: 2003-08-13 22:27:32
 # Authors: Don
 # Change log:
-# $Id: 02url.t,v 1.2 2003/08/15 02:36:05 don Exp $
+# $Id: 02url.t,v 1.3 2003/09/21 17:40:02 don Exp $
 
 use strict;
 use Carp;

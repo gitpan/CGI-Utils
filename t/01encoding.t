@@ -1,9 +1,9 @@
-#!/usr/bin/env perl
+#!/usr/bin/env perl -w
 
 # Creation date: 2003-08-13 21:01:33
 # Authors: Don
 # Change log:
-# $Id: 01encoding.t,v 1.1 2003/08/14 04:48:25 don Exp $
+# $Id: 01encoding.t,v 1.2 2003/09/21 17:40:02 don Exp $
 
 use strict;
 use Carp;
@@ -47,7 +47,7 @@ sub test_encode_vars {
 
 sub test_decode_vars {
     my ($utils, $query) = @_;
-    $query = 'field1=val1;field2=val2;field2=val2_3;field3=val3' if $query eq '';
+    $query = 'field1=val1;field2=val2;field2=val2_3;field3=val3' unless defined $query;
     my $var_hash = $utils->urlDecodeVars($query);
 
     my @keys = keys %$var_hash;

@@ -2,7 +2,7 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.21 2003/09/06 03:38:52 don Exp $
+# $Id: Utils.pm,v 1.23 2003/10/06 03:37:23 don Exp $
 
 =pod
 
@@ -68,8 +68,7 @@ use strict;
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.02'; # update below in POD as well
-        local($^W) = 0;
+        $VERSION = '0.03'; # update below in POD as well
     }
 
 =pod
@@ -129,7 +128,7 @@ use strict;
 =cut
     sub urlEncodeVars {
         my ($self, $var_hash, $sep) = @_;
-        $sep = ';' if $sep eq '';
+        $sep = ';' unless defined $sep;
         my @pairs;
         foreach my $key (keys %$var_hash) {
             my $val = $$var_hash{$key};
@@ -163,7 +162,7 @@ use strict;
         my $var_order = [];
         
         foreach my $pair (@pairs) {
-            my ($name, $value) = split /=/, $pair, 2;
+            my ($name, $value) = map { $self->urlDecode($_) } split /=/, $pair, 2;
             if (exists($$var_hash{$name})) {
                 my $this_val = $$var_hash{$name};
                 if (ref($this_val) eq 'ARRAY') {
@@ -190,7 +189,8 @@ use strict;
 =cut
     sub getSelfRefHostUrl {
         my ($self) = @_;
-        my $scheme = $ENV{HTTPS} eq 'on' ? 'https' : 'http';
+        my $https = $ENV{HTTPS};
+        my $scheme = (defined($https) and $https eq 'on') ? 'https' : 'http';
         return "$scheme://$ENV{HTTP_HOST}";
     }
 
@@ -567,11 +567,6 @@ use strict;
         my $info = { 'Content-Type' => $$headers{'content-type'} };
         $$self{_upload_info}{$file_name} = $info;
 
-        # get temp file
-#         use File::Temp ();
-#         my $tpl = "_cgi_utils_XXXXXXXXXX";
-#         my $out_fh = File::Temp::tempfile($tpl, "/tmp");
-
         # print "got file_name='$file_name'\n";
         my $out_fh = CGI::Utils::UploadFile->new_tmpfile($file_name);
         
@@ -592,19 +587,6 @@ use strict;
             print $out_fh $buf;
         }
         seek($out_fh, 0, 0); # seek back to beginning of file
-
-#         { # testing
-#             my $size = -s $out_fh;
-#             print "_readMultipartBodyToFile(): got $size bytes ($file_name)\n";
-#             local(*OUT);
-#             open(OUT, '>/tmp/test.txt');
-#             while (my $line = <$out_fh>) {
-#                 print OUT $line;
-#             }
-#             close OUT;
-#         }
-
-        # create object that is a filehandle, but in string context returns the file name
         
         return wantarray ? ($out_fh, $amt_read) : $out_fh;
     }
@@ -698,6 +680,6 @@ __END__
 
 =head1 VERSION
 
- 0.02
+ 0.03
 
 =cut
