@@ -6,20 +6,46 @@ SYNOPSIS
      use CGI::Utils;
      my $utils = CGI::Utils->new;
 
+     $utils->parse;
+
+     my $fields = $utils->vars; # or $utils->Vars
+     my $field1 = $$fields{field1};
+
+         or
+
+     my $field1 = $utils->param('field1');
+
+     # File uploads
+     my $file_handle = $utils->param('file0'); # or $$fields{file0};
+     my $file_name = "$file_handle";  
+
 DESCRIPTION
+     This module can be used almost as a drop-in replacement for
+     CGI.pm for those of you who do not use the HTML generating
+     features of CGI.pm
+
      This module provides an object-oriented interface for retrieving
      information provided by the Common Gateway Interface, as well as
-     url-encoding and decoding values. For example, CGI has a utility
-     for escaping HTML, but no public interface for url-encoding a
-     value or for taking a hash of values and returning a url-encoded
-     query string suitable for passing to a CGI script. This module
-     does that, as well as provide methods for creating a
-     self-referencing url, converting relative urls to absolute,
-     adding CGI parameters to the end of a url, etc.  Please see the
-     METHODS section below for more detailed descriptions of
-     functionality provided by this module.
+     url-encoding and decoding values, and parsing CGI
+     parameters. For example, CGI has a utility for escaping HTML,
+     but no public interface for url-encoding a value or for taking a
+     hash of values and returning a url-encoded query string suitable
+     for passing to a CGI script. This module does that, as well as
+     provide methods for creating a self-referencing url, converting
+     relative urls to absolute, adding CGI parameters to the end of a
+     url, etc.  Please see the METHODS section below for more
+     detailed descriptions of functionality provided by this module.
+
+     File uploads via the multipart/form-data encoding are supported.
+     The parameter for the field name corresponding to the file is a
+     file handle that, when evaluated in string context, returns the
+     name of the file uploaded.  To get the contents of the file,
+     just read from the file handle.
 
 METHODS
+  new()
+     Returns a new CGI::Utils object.
+
   urlEncode($str)
      Returns the fully URL-encoded version of the given string.  It
      does not convert space characters to '+' characters.
@@ -37,7 +63,10 @@ METHODS
   urlDecodeVars($query_string)
      Takes a URL-encoded query string, decodes it, and returns a
      reference to a hash of name/value pairs.  For multivalued
-     fields, the value is an array of values.
+     fields, the value is an array of values.  If called in array
+     context, it returns a reference to a hash of name/value pairs,
+     and a reference to an array of field names in the order they
+     appear in the query string.
 
   getSelfRefHostUrl()
      Returns a url referencing top level directory in the current
@@ -66,6 +95,33 @@ METHODS
      Parses the cookies passed to the server.  Returns a hash of
      key/value pairs representing the cookie names and values.
 
+  parse({ max_post_size => $max_bytes })
+     Parses the CGI parameters.  GET and POST (both url-encoded and
+     multipart/form-data encodings), including file uploads, are
+     supported.  If the request method is POST, you may pass a
+     maximum number of bytes to accept via POST.  This can be used to
+     limit the size of file uploads, for example.
+
+  param($name)
+     Returns the CGI parameter with name $name.  The parse() method
+     must be called before the CGI parameters will be available.  If
+     called in array context, it returns an array.  In scalar
+     context, it returns an array reference for multivalued fields,
+     and a scalar for single-valued fields.
+
+  vars($delimiter)
+     Also Vars() to be compatible with CGI.pm.  The parse() method
+     must be called before this one.  Returns a reference to a tied
+     hash containing key/value pairs corresponding to each CGI
+     parameter.  For multivalued fields, the value is an array ref,
+     with each element being one of the values.  If you pass in a
+     value for the delimiter, multivalued fields will be return as a
+     string of values delimited by the delimiter you passed in.
+
+  uploadInfo($file_name)
+     Returns a reference to a hash containing the header information
+     sent along with a file upload.
+
 AUTHOR
      Don Owens <don@owensnet.com>
 
@@ -77,5 +133,5 @@ COPYRIGHT
      itself.
 
 VERSION
-     0.01
+     0.02
 

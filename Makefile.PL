@@ -3,7 +3,7 @@
 # Creation date: 2003-08-13 20:59:11
 # Authors: Don
 # Change log:
-# $Id: Makefile.PL,v 1.1 2003/08/14 03:59:32 don Exp $
+# $Id: Makefile.PL,v 1.2 2003/09/05 14:44:34 don Exp $
 
 use strict;
 use Carp;
@@ -21,6 +21,7 @@ use Carp;
                   ABSTRACT => 'CGI utilities',
                   AUTHOR => 'DON OWENS <don@owensnet.com>',
                   PM => { 'Utils.pm' => '$(INST_LIBDIR)/Utils.pm',
+                          'Utils/UploadFile.pm' => '$(INST_LIBDIR)/Utils/UploadFile.pm',
                         },
                   dist => { COMPRESS => 'gzip -9f', SUFFIX => 'gz' },
                   DIR => [],

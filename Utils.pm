@@ -2,7 +2,7 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.7 2003/08/15 02:40:15 don Exp $
+# $Id: Utils.pm,v 1.21 2003/09/06 03:38:52 don Exp $
 
 =pod
 
@@ -16,19 +16,44 @@
  use CGI::Utils;
  my $utils = CGI::Utils->new;
 
+ $utils->parse;
+
+
+ my $fields = $utils->vars; # or $utils->Vars
+ my $field1 = $$fields{field1};
+
+     or
+
+ my $field1 = $utils->param('field1');
+
+
+ # File uploads
+ my $file_handle = $utils->param('file0'); # or $$fields{file0};
+ my $file_name = "$file_handle";  
+
 =head1 DESCRIPTION
+
+ This module can be used almost as a drop-in replacement for
+ CGI.pm for those of you who do not use the HTML generating
+ features of CGI.pm
 
  This module provides an object-oriented interface for retrieving
  information provided by the Common Gateway Interface, as well as
- url-encoding and decoding values. For example, CGI has a utility
- for escaping HTML, but no public interface for url-encoding a
- value or for taking a hash of values and returning a url-encoded
- query string suitable for passing to a CGI script. This module
- does that, as well as provide methods for creating a
- self-referencing url, converting relative urls to absolute,
- adding CGI parameters to the end of a url, etc.  Please see the
- METHODS section below for more detailed descriptions of
- functionality provided by this module.
+ url-encoding and decoding values, and parsing CGI
+ parameters. For example, CGI has a utility for escaping HTML,
+ but no public interface for url-encoding a value or for taking a
+ hash of values and returning a url-encoded query string suitable
+ for passing to a CGI script. This module does that, as well as
+ provide methods for creating a self-referencing url, converting
+ relative urls to absolute, adding CGI parameters to the end of a
+ url, etc.  Please see the METHODS section below for more
+ detailed descriptions of functionality provided by this module.
+
+ File uploads via the multipart/form-data encoding are supported.
+ The parameter for the field name corresponding to the file is a
+ file handle that, when evaluated in string context, returns the
+ name of the file uploaded.  To get the contents of the file,
+ just read from the file handle.
 
 =head1 METHODS
 
@@ -39,16 +64,31 @@ use strict;
 {   package CGI::Utils;
 
     use vars qw($VERSION);
+
+    use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = 0.01; # update below in POD as well
+        $VERSION = '0.02'; # update below in POD as well
+        local($^W) = 0;
     }
 
+=pod
+
+=head2 new()
+
+ Returns a new CGI::Utils object.
+
+=cut
     sub new {
-        my ($proto) = @_;
-        my $self = bless {}, ref($proto) || $proto;
+        my ($proto, $args) = @_;
+        $args = {} unless ref($args) eq 'HASH';
+        my $self = { _params => {}, _param_order => [], _upload_info => {},
+                   _max_post_size => $$args{max_post_size} };
+        bless $self, ref($proto) || $proto;
         return $self;
     }
+
+=pod
 
 =head2 urlEncode($str)
 
@@ -62,6 +102,8 @@ use strict;
         return $str;
     }
 
+=pod
+
 =head2 urlDecode($url_encoced_str)
 
  Returns the decoded version of the given URL-encoded string.
@@ -73,6 +115,8 @@ use strict;
         $str =~ s|%([A-Fa-f0-9]{2})|chr(hex($1))|eg;
         return $str;
     }
+
+=pod
 
 =head2 urlEncodeVars($var_hash, $sep)
 
@@ -100,17 +144,23 @@ use strict;
         return join($sep, @pairs);
     }
 
+=pod
+
 =head2 urlDecodeVars($query_string)
 
  Takes a URL-encoded query string, decodes it, and returns a
  reference to a hash of name/value pairs.  For multivalued
- fields, the value is an array of values.
+ fields, the value is an array of values.  If called in array
+ context, it returns a reference to a hash of name/value pairs,
+ and a reference to an array of field names in the order they
+ appear in the query string.
 
 =cut
     sub urlDecodeVars {
         my ($self, $query) = @_;
         my $var_hash = {};
         my @pairs = split /[;&]/, $query;
+        my $var_order = [];
         
         foreach my $pair (@pairs) {
             my ($name, $value) = split /=/, $pair, 2;
@@ -123,11 +173,14 @@ use strict;
                 }
             } else {
                 $$var_hash{$name} = $value;
+                push @$var_order, $name;
             }
         }
         
-        return $var_hash;
+        return wantarray ? ($var_hash, $var_order) : $var_hash;
     }
+
+=pod
 
 =head2 getSelfRefHostUrl()
 
@@ -141,6 +194,8 @@ use strict;
         return "$scheme://$ENV{HTTP_HOST}";
     }
 
+=pod
+
 =head2 getSelfRefUrl()
 
  Returns a url referencing the current script (without any query
@@ -151,6 +206,8 @@ use strict;
         my ($self) = @_;
         return $self->getSelfRefHostUrl . $ENV{SCRIPT_NAME};
     }
+
+=pod
 
 =head2 getSelfRefUrlWithQuery()
 
@@ -164,6 +221,8 @@ use strict;
         return $self->getSelfRefHostUrl . $ENV{REQUEST_URI};
     }
 
+=pod
+
 =head2 getSelfRefUrlDir()
 
  Returns a url referencing the directory part of the current url.
@@ -176,6 +235,8 @@ use strict;
         $url =~ s{/[^/]+$}{};
         return $url;
     }
+
+=pod
 
 =head2 addParamsToUrl($url, $param_hash)
 
@@ -205,6 +266,8 @@ use strict;
         return $url;
     }
 
+=pod
+
 =head2 getParsedCookies()
 
  Parses the cookies passed to the server.  Returns a hash of
@@ -216,7 +279,403 @@ use strict;
         my %cookies = map { (split(/=/, $_, 2)) } split(/;\s*/, $ENV{HTTP_COOKIE});
         return \%cookies;
     }
-    
+
+=pod
+
+=head2 parse({ max_post_size => $max_bytes })
+
+ Parses the CGI parameters.  GET and POST (both url-encoded and
+ multipart/form-data encodings), including file uploads, are
+ supported.  If the request method is POST, you may pass a
+ maximum number of bytes to accept via POST.  This can be used to
+ limit the size of file uploads, for example.
+
+=cut
+    sub parse {
+        my ($self, $args) = @_;
+
+        $args = {} unless ref($args) eq 'HASH';
+
+        # check for mod_perl - GATEWAY_INTERFACE =~ m{^CGI-Perl/}
+        # check for PerlEx - GATEWAY_INTERFACE =~ m{^CGI-PerlEx}
+
+        my $method = lc($ENV{REQUEST_METHOD});
+        my $content_length = $ENV{CONTENT_LENGTH} || 0;
+
+        if ($method eq 'post') {
+            my $max_size = $$args{max_post_size} || $$self{_max_post_size};
+            if ($max_size > 0 and $content_length > $max_size) {
+                return undef;
+            }
+        }
+
+        if ($method eq 'post' and $ENV{CONTENT_TYPE} =~ m|^multipart/form-data|) {
+            # FIXME: do mime parsing here for multipart/form-data
+            if ($ENV{CONTENT_TYPE} =~ /boundary=(\"?)([^\";,]+)\1/) {
+                my $boundary = $2;
+                $self->_readMultipartData($boundary, $content_length, \*STDIN);
+            } else {
+                return undef;
+            }
+        } elsif ($method eq 'get' or $method eq 'head') {
+            my $query_string = $ENV{QUERY_STRING};
+            $self->_parseParams($query_string);
+        } elsif ($method eq 'post') {
+            my $query_string;
+            $self->_readPostData(\*STDIN, \$query_string, $content_length) if $content_length > 0;
+            $self->_parseParams($query_string);
+            # FIXME: may want to append anything in query string
+            # to POST data, so can do a post with an action that
+            # contains a query string.
+        }
+
+        return 1;
+    }
+
+=pod
+
+=head2 param($name)
+
+ Returns the CGI parameter with name $name.  The parse() method
+ must be called before the CGI parameters will be available.  If
+ called in array context, it returns an array.  In scalar
+ context, it returns an array reference for multivalued fields,
+ and a scalar for single-valued fields.
+
+=cut
+    sub param {
+        my ($self, $name) = @_;
+        if (scalar(@_) == 1 and wantarray()) {
+            my $params = $$self{_params};
+            my $order = $$self{_param_order};
+            return grep { exists($$params{$_})  } @$order;
+        }
+        return undef unless defined($name);
+        my $val = $$self{_params}{$name};
+
+        if (wantarray()) {
+            return ref($val) eq 'ARRAY' ? @$val : ($val);
+        } else {
+            return $val;
+        }
+    }
+
+=pod
+
+=head2 vars($delimiter)
+
+ Also Vars() to be compatible with CGI.pm.  The parse() method
+ must be called before this one.  Returns a reference to a tied
+ hash containing key/value pairs corresponding to each CGI
+ parameter.  For multivalued fields, the value is an array ref,
+ with each element being one of the values.  If you pass in a
+ value for the delimiter, multivalued fields will be return as a
+ string of values delimited by the delimiter you passed in.
+
+=cut
+    sub vars {
+        my ($self, $multivalue_delimiter) = @_;
+        if ($$self{_multivalue_delimiter} ne '') {
+            $multivalue_delimiter = $$self{_multivalue_delimiter} if $multivalue_delimiter eq '';
+        } elsif ($multivalue_delimiter ne '') {
+            $$self{_multivalue_delimiter} = $multivalue_delimiter;
+        }
+
+        if (wantarray()) {
+            my $params = $$self{_params};
+            my %vars = %$params;
+            foreach my $key (keys %vars) {
+                if (ref($vars{$key}) eq 'ARRAY') {
+                    if ($multivalue_delimiter ne '') {
+                        $vars{$key} = join($multivalue_delimiter, @{$vars{$key}});
+                    } else {
+                        my @copy = @{$vars{$key}};
+                        $vars{$key} = \@copy;
+                    }
+                }
+            }
+            return %vars;
+        }
+        
+        my $vars = $$self{_vars_hash};
+        return $vars if $vars;
+
+        my %vars;
+        tie %vars, 'CGI::Utils', $self;
+
+        return \%vars;
+    }
+    *Vars = \&vars;
+
+    sub TIEHASH {
+        my ($proto, $obj) = @_;
+        return $obj;
+    }
+
+    sub STORE {
+        my ($self, $key, $val) = @_;
+        my $params = $$self{_params};
+        # FIXME: memory leak here - need to compress the array if has empty slots
+        # push(@{$$self{_param_order}}, $key) unless exists($$params{$key});
+        $$params{$key} = $val;
+    }
+
+    sub FETCH {
+        my ($self, $key) = @_;
+        my $params = $$self{_params};
+        my $val = $$params{$key};
+        if (ref($val) eq 'ARRAY') {
+            my $delimiter = $$self{_multivalue_delimiter};
+            $val = join($delimiter, @$val) unless $delimiter eq '';
+        }
+        return $val;
+    }
+
+    sub FIRSTKEY {
+        my ($self) = @_;
+        my @keys = keys %{$$self{_params}};
+        $$self{_keys} = \@keys;
+        return shift @keys;
+    }
+
+    sub NEXTKEY {
+        my ($self) = @_;
+        return shift(@{$$self{_keys}});
+    }
+
+    sub EXISTS {
+        my ($self, $key) = @_;
+        my $params = $$self{_params};
+        return exists($$params{$key});
+    }
+
+    sub DELETE {
+        my ($self, $key) = @_;
+        my $params = $$self{_params};
+        delete $$params{$key};
+    }
+
+    sub CLEAR {
+        my ($self) = @_;
+        %{$$self{_params}} = ();
+    }
+
+    sub _parseParams {
+        my ($self, $query_string) = @_;
+        ($$self{_params}, $$self{_param_order}) = $self->urlDecodeVars($query_string);
+    }
+
+    sub _readPostData {
+        my ($self, $fh, $buf, $len) = @_;
+        return CORE::read($fh, $$buf, $len);
+    }
+
+    sub _readMultipartData {
+        my ($self, $boundary, $content_length, $fh) = @_;
+        my $line;
+        my $eol = $self->_getEndOfLineSeq;
+        my $end_char = substr($eol, -1, 1);
+        my $buf;
+        my $len = 1024;
+        my $amt_read = 0;
+        my $sep = "--$boundary$eol";
+
+        my $params = {};
+        my $param_order = [];
+
+        while (my $size = $self->_read($fh, $buf, $len, 0, $end_char)) {
+            $amt_read += $size;
+            if ($buf eq $sep) {
+                last;
+            }
+            last unless $amt_read < $content_length;
+        }
+
+        while ($amt_read < $content_length) {
+            my ($headers, $amt) = $self->_readMultipartHeader($fh);
+            $amt_read += $amt;
+            my $disp = $$headers{'content-disposition'};
+            my ($type, @fields) = split /;\s*/, $disp;
+            my %disp_fields = map { s/^(\")(.+)\1$/$2/; $_ } map { split(/=/, $_, 2) } @fields;
+            my $name = $disp_fields{name};
+            my ($body, $body_size) = $self->_readMultipartBody($boundary, $fh, $headers, \%disp_fields);
+            $amt_read += $body_size;
+
+            next if $name eq '';
+
+            if (exists($$params{$name})) {
+                my $val = $$params{$name};
+                if (ref($val) eq 'ARRAY') {
+                    push @$val, $body;
+                } else {
+                    my $array = [ $val, $body ];
+                    $$params{$name} = $array;
+                }
+            } else {
+                $$params{$name} = $body;
+                push @$param_order, $name;
+            }
+
+        }
+
+        $$self{_params} = $params;
+        $$self{_param_order} = $param_order;
+
+        return 1;
+    }
+
+    sub _readMultipartBody {
+        my ($self, $boundary, $fh, $headers, $disposition_fields) = @_;
+
+        local($^W) = 0; # turn off lame warnings
+        
+        if ($$disposition_fields{filename} ne '') {
+            return $self->_readMultipartBodyToFile($boundary, $fh, $headers, $disposition_fields);
+        }
+        
+        my $amt_read = 0;
+        my $eol = $self->_getEndOfLineSeq;
+        my $end_char = substr($eol, -1, 1);
+        my $buf;
+        my $body;
+
+        while (my $size = $self->_read($fh, $buf, 4096, 0, $end_char)) {
+            $amt_read += $size;
+            if (substr($buf, -1, 1) eq $end_char and $buf =~ /^--$boundary(?:--)?$eol$/
+                and $body =~ /$eol$/
+               ) {
+                $body =~ s/$eol$//;
+                last;
+            }
+            $body .= $buf;
+        }
+
+        return wantarray ? ($body, $amt_read) : $body;
+    }
+
+    sub _readMultipartBodyToFile {
+        my ($self, $boundary, $fh, $headers, $disposition_fields) = @_;
+
+        my $amt_read = 0;
+        my $body;
+        my $eol = $self->_getEndOfLineSeq;
+        my $end_char = substr($eol, -1, 1);
+        my $buf;
+        my $buf2;
+
+        my $file_name = $$disposition_fields{filename};
+        my $info = { 'Content-Type' => $$headers{'content-type'} };
+        $$self{_upload_info}{$file_name} = $info;
+
+        # get temp file
+#         use File::Temp ();
+#         my $tpl = "_cgi_utils_XXXXXXXXXX";
+#         my $out_fh = File::Temp::tempfile($tpl, "/tmp");
+
+        # print "got file_name='$file_name'\n";
+        my $out_fh = CGI::Utils::UploadFile->new_tmpfile($file_name);
+        
+        while (my $size = $self->_read($fh, $buf, 4096, 0, $end_char)) {
+            $amt_read += $size;
+            if (substr($buf, -1, 1) eq $end_char and $buf =~ /^--$boundary(?:--)?$eol$/
+                and $buf2 =~ /$eol$/
+               ) {
+                $buf2 =~ s/$eol$//;
+                $buf = '';
+                last;
+            }
+            print $out_fh $buf2;
+            $buf2 = $buf;
+            $buf = '';
+        }
+        if ($buf ne '') {
+            print $out_fh $buf;
+        }
+        seek($out_fh, 0, 0); # seek back to beginning of file
+
+#         { # testing
+#             my $size = -s $out_fh;
+#             print "_readMultipartBodyToFile(): got $size bytes ($file_name)\n";
+#             local(*OUT);
+#             open(OUT, '>/tmp/test.txt');
+#             while (my $line = <$out_fh>) {
+#                 print OUT $line;
+#             }
+#             close OUT;
+#         }
+
+        # create object that is a filehandle, but in string context returns the file name
+        
+        return wantarray ? ($out_fh, $amt_read) : $out_fh;
+    }
+
+=pod
+
+=head2 uploadInfo($file_name)
+
+ Returns a reference to a hash containing the header information
+ sent along with a file upload.
+
+=cut
+    # provided for compatibility with CGI.pm
+    sub uploadInfo {
+        my ($self, $file_name) = @_;
+        return $$self{_upload_info}{$file_name};
+    }
+
+    sub _readMultipartHeader {
+        my ($self, $fh) = @_;
+        my $amt_read = 0;
+        my $eol = $self->_getEndOfLineSeq;
+        my $end_char = substr($eol, -1, 1);
+        my $buf;
+        my $header_str;
+        while (my $size = $self->_read($fh, $buf, 4096, 0, $end_char)) {
+            $amt_read += $size;
+            last if $buf eq $eol;
+            $header_str .= $buf;
+        }
+
+        my $headers = {};
+        my $last_header;
+        foreach my $line (split($eol, $header_str)) {
+            if ($line =~ /^(\S+):\s*(.+)$/) {
+                $last_header = lc($1);
+                $$headers{$last_header} = $2;
+            } elsif ($line =~ /^\s+/) {
+                $$headers{$last_header} .= $eol . $line;
+            }
+        }
+
+        return wantarray ? ($headers, $amt_read) : $headers;
+    }
+
+    sub _getEndOfLineSeq {
+        return "\x0d\x0a"; # "\015\012" in octal
+    }
+
+    sub _read {
+        my ($self, $fh, $buf, $len, $offset, $end_char) = @_;
+        return '' if $len == 0;
+        my $cur_len = 0;
+        my $buffer;
+        my $buf_ref = \$buffer;
+        my $char;
+        while (defined($char = CORE::getc($fh))) {
+            $$buf_ref .= $char;
+            $cur_len++;
+            if ($char eq $end_char or $cur_len == $len) {
+                if ($offset > 0) {
+                    substr($_[2], $offset, $cur_len) = $$buf_ref;
+                } else {
+                    $_[2] = $$buf_ref;
+                }
+                return $cur_len;
+            }
+        }
+        return 0;
+    }
+
 }
 
 1;
@@ -239,6 +698,6 @@ __END__
 
 =head1 VERSION
 
- 0.01
+ 0.02
 
 =cut

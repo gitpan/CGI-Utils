@@ -3,6 +3,7 @@ README
 INSTALL
 Makefile.PL
 Utils.pm
+Utils/UploadFile.pm
 t/00use.t
 t/01encoding.t
 t/02url.t
