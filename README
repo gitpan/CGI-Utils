@@ -48,8 +48,17 @@ METHODS
      Returns the fully URL-encoded version of the given string.  It
      does not convert space characters to '+' characters.
 
-  urlDecode($url_encoced_str)
+  urlUnicodeEncode($str)
+     Returns the fully URL-encoded version of the given string as
+     unicode characters.  It does not convert space characters to '+'
+     characters.
+
+  urlDecode($url_encoded_str)
      Returns the decoded version of the given URL-encoded string.
+
+  urlUnicodeDecode($url_encoded_str)
+     Returns the decoded version of the given URL-encoded string,
+     with unicode support.
 
   urlEncodeVars($var_hash, $sep)
      Takes a hash of name/value pairs and returns a fully URL-encoded
@@ -132,17 +141,35 @@ METHODS
      Returns additional virtual path information from the URL (if
      any) after your script.
 
+  getRemoteAddr(), remote_addr()
+     Returns the dotted decimal representation of the remote client's
+     IP address.
+
+  getRemoteHost(), remote_host()
+     Returns the name of the remote host, or its IP address if the
+     name is unavailable.
+
+  getHost(), host(), virtual_host()
+     Returns the name of the host in the URL being accessed.  This is
+     sent as the Host header by the web browser.
+
+  getReferer(), referer(), getReferrer(), referrer()
+     Returns the referring URL
+
+  getProtocol(), protocol()
+     Returns the protocol, i.e., http or https.
+
   getRequestMethod(), request_method()
-     Return the request method, i.e., GET, POST, HEAD, or PUT.
+     Returns the request method, i.e., GET, POST, HEAD, or PUT.
 
   getContentType(), content_type()
-     Return the content type.
+     Returns the content type.
 
   getPathTranslated(), path_translated()
-     Return the physical path information if provided in the CGI environment.
+     Returns the physical path information if provided in the CGI environment.
 
   getQueryString(), query_string()
-     Return a query string created from the current parameters.
+     Returns a query string created from the current parameters.
 
   getHeader(@args), header(@args)
      Generates HTTP headers.  Standard arguments are content_type,
@@ -160,6 +187,35 @@ METHODS
 
          print $cgi_obj->getHeader( -content_type => 'text/html', -expires => '+3d' );
 
+     Cookies may be passed with the 'cookies' key either as a string,
+     a hash ref, or as a CGI::Cookies object, e.g.
+
+        my $cookie = { name => 'my_cookie', value => 'cookie_val' };
+        print $cgi_obj->getHeader(cookies => $cookie);
+
+     You may also pass an array of cookies, e.g.,
+
+        print $cgi_obj->getHeader(cookies => [ $cookie1, $cookie2 ]);
+
+  getRedirect($url), redirect($url)
+     Returns the header required to do a redirect.  This method also
+     accepts named arguments, e.g.,
+
+         print $cgi_obj->getRedirect(url => $url);
+
+     You may also pass a cookies argument as in getHeader().
+
+  getLocalRedirect(), local_redirect()
+     Like getRedirect(), except that the redirect URL is converted
+     from relative to absolute, including the host.
+
+  getCookieString(\%hash)
+     Returns a string to pass as the value of a 'Set-Cookie' header.
+
+  getSetCookieString(\%hash), getSetCookieString([ \%hash1, \%hash2 ])
+     Returns a string to pass as 'Set-Cookie' header(s), including
+     the line ending(s).
+
   uploadInfo($file_name)
      Returns a reference to a hash containing the header information
      sent along with a file upload.
@@ -173,6 +229,11 @@ EXPORTS
      namespace.  This allows for incorporating these methods into
      your class without having to inherit from CGI::Utils.
 
+ACKNOWLEDGEMENTS
+     Other people who have contributed ideas and/or code for this module:
+
+        Kevin Wilson
+
 AUTHOR
      Don Owens <don@owensnet.com>
 
@@ -184,5 +245,5 @@ COPYRIGHT
      itself.
 
 VERSION
-     0.06
+     0.07
 

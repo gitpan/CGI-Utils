@@ -2,22 +2,36 @@
 # Creation date: 2003-09-01 22:23:46
 # Authors: Don
 # Change log:
-# $Id: UploadFile.pm,v 1.3 2003/09/05 05:05:29 don Exp $
+# $Id: UploadFile.pm,v 1.6 2004/10/24 10:33:08 don Exp $
 
 use strict;
 
 {   package CGI::Utils::UploadFile;
 
     use vars qw($VERSION);
-    $VERSION = do { my @r=(q$Revision: 1.3 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r };
+    $VERSION = do { my @r=(q$Revision: 1.6 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r };
 
-    use vars qw($FH_COUNT);
+    use vars qw($FH_COUNT $Have_File_Temp $Open_Flags);
     $FH_COUNT = 0;
 
     use Fcntl ();
 
     use overload '""' => '_asString', cmp => '_compareAsString', fallback => 1;
 
+    BEGIN {
+        local $SIG{__DIE__} = sub {};
+        local $SIG{__WARN__} = sub {};
+        $Have_File_Temp = eval 'require File::Temp; 1';
+        $Open_Flags = Fcntl::O_RDWR()|Fcntl::O_CREAT();
+        # Fcntl::O_EXCL(); - leave this out for now cuz it breaks File::Temp usage
+
+        # idea taken from File::Temp
+        unless ($^O eq 'MacOS') {
+            my $bit = 0;
+            $Open_Flags |= $bit if eval '$bit = Fcntl::O_TEMPORARY()';
+        }
+    }
+    
     sub new {
         my ($proto, $name) = @_;
         no strict 'refs';
@@ -29,21 +43,37 @@ use strict;
         return wantarray ? ($self, $sub_name) : $self;
     }
 
+    sub new_from_handle {
+        my ($proto, $file_name, $old_fh) = @_;
+        my ($fh, $name_space) = $proto->new($file_name);
+
+        # dup the old file handle
+        open($fh, ">&", $old_fh);
+        return $fh;
+    }
+
     sub new_tmpfile {
         my ($proto, $file_name) = @_;
 
         my ($fh, $name_space) = $proto->new($file_name);
-        
-        my $tmp_dir = "/tmp";
-        my $tmp_file = $tmp_dir .
-            "/_cgi_utils_" . sprintf("%x%x%x", 10000 + int rand(10000), time(), $$);
-        for my $i (1 .. 20) {
-            last unless -e $tmp_file;
+
+        my $tmp_file = '';
+
+        if ($Have_File_Temp) {
+            my $tmp_fh = File::Temp->new(UNLINK => 0);
+            $tmp_file = $tmp_fh->filename;
+        } else {
+            my $tmp_dir = "/tmp";
             $tmp_file = $tmp_dir .
                 "/_cgi_utils_" . sprintf("%x%x%x", 10000 + int rand(10000), time(), $$);
+            for my $i (1 .. 20) {
+                last unless -e $tmp_file;
+                $tmp_file = $tmp_dir .
+                    "/_cgi_utils_" . sprintf("%x%x%x", 10000 + int rand(10000), time(), $$);
+            }
         }
 
-        sysopen($fh, $tmp_file, Fcntl::O_RDWR()|Fcntl::O_CREAT()|Fcntl::O_EXCL(), 0600)
+        sysopen($fh, $tmp_file, $Open_Flags, 0600)
               or return undef;
 
         unlink $tmp_file;
@@ -52,6 +82,10 @@ use strict;
         return $fh;
     }
 
+    sub filename {
+        return shift()->_asString;
+    }
+    
     sub _asString {
         my ($self) = @_;
 
@@ -102,6 +136,6 @@ __END__
 
 =head1 VERSION
 
-$Id: UploadFile.pm,v 1.3 2003/09/05 05:05:29 don Exp $
+$Id: UploadFile.pm,v 1.6 2004/10/24 10:33:08 don Exp $
 
 =cut

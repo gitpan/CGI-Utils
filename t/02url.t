@@ -3,7 +3,7 @@
 # Creation date: 2003-08-13 22:27:32
 # Authors: Don
 # Change log:
-# $Id: 02url.t,v 1.6 2004/03/03 06:40:00 don Exp $
+# $Id: 02url.t,v 1.7 2004/10/26 06:16:03 don Exp $
 
 use strict;
 use Carp;
@@ -24,6 +24,8 @@ use Carp;
     $ENV{REQUEST_URI} = "/cgi-bin/test.cgi?stuff=1";
     $ENV{SCRIPT_NAME} = "/cgi-bin/test.cgi";
     $ENV{SERVER_PROTOCOL} = 'HTTP/1.1';
+    $ENV{GATEWAY_INTERFACE} = 'CGI/1.0';
+    $ENV{SERVER_PORT} = 80;
 
     my $host_url = 'http://mydomain.com';
     ok($utils->getSelfRefHostUrl eq $host_url);
@@ -38,6 +40,7 @@ use Carp;
     ok($utils->getSelfRefUrlDir eq $self_dir);
 
     my $self_ref_with_query = 'http://mydomain.com/cgi-bin/test.cgi?stuff=1';
+    # print STDERR "\n\nself_url_with_query=" . $utils->getSelfRefUrlWithQuery . "\n\n";
     ok($utils->getSelfRefUrlWithQuery eq $self_ref_with_query);
 
     $ENV{HTTPS} = 'on';
