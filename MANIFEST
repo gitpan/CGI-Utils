@@ -1,0 +1,9 @@
+MANIFEST
+README
+INSTALL
+Makefile.PL
+Utils.pm
+t/00use.t
+t/01encoding.t
+t/02url.t
+t/03cookies.t
