@@ -2,7 +2,7 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.33 2004/02/16 07:38:25 don Exp $
+# $Id: Utils.pm,v 1.41 2004/03/29 07:37:07 don Exp $
 
 # Copyright (c) 2003-2004 Don Owens
 
@@ -21,9 +21,6 @@
 
  use CGI::Utils;
  my $utils = CGI::Utils->new;
-
- $utils->parse;
-
 
  my $fields = $utils->vars; # or $utils->Vars
  my $field1 = $$fields{field1};
@@ -66,7 +63,9 @@
 =cut
 
 # TODO
-# cookie() method that CGI.pm has
+# work under mod_perl 1 and 2
+# cache values like parsed cookies
+# NPH stuff for getHeader()
 
 use strict;
 
@@ -77,9 +76,9 @@ use strict;
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.05'; # update below in POD as well
+        $VERSION = '0.06'; # update below in POD as well
     }
-
+    
     require Exporter;
     @ISA = 'Exporter';
     @EXPORT = ();
@@ -265,7 +264,8 @@ use strict;
 =cut
     sub getSelfRefUrl {
         my ($self) = @_;
-        return $self->getSelfRefHostUrl . $ENV{SCRIPT_NAME};
+        # FIXME: make this work under mod perl 1 & 2
+        return $self->getSelfRefHostUrl . $self->getSelfRefUri;
     }
 
 =pod
@@ -277,7 +277,9 @@ use strict;
 =cut
     sub getSelfRefUri {
         my ($self) = @_;
-        return $ENV{SCRIPT_NAME};
+        my $uri = $ENV{REQUEST_URI};
+        $uri =~ s/^(.*?)\?.*$/$1/;
+        return $uri;
     }
 
 =pod
@@ -292,6 +294,21 @@ use strict;
         my ($self) = @_;
 
         return $self->getSelfRefHostUrl . $ENV{REQUEST_URI};
+    }
+
+=pod
+
+=head2 getSelfRefUrlWithParams($params)
+
+ Returns a url reference the current script along with the given
+ hash of parameters added onto the end of url as a query string.
+
+=cut
+    # added for 0.06
+    sub getSelfRefUrlWithParams {
+        my ($self, $args) = @_;
+
+        return $self->addParamsToUrl($self->getSelfRefUrl, $args);
     }
 
 =pod
@@ -324,7 +341,7 @@ use strict;
     sub convertRelativeUrlWithParams {
         my ($self, $rel_url, $args) = @_;
         my $host_url = $self->getSelfRefHostUrl;
-        my $uri = $ENV{SCRIPT_NAME};
+        my $uri = $self->getSelfRefUri;
         $uri =~ s{^(.+?)\?.*$}{$1};
         $uri =~ s{/[^/]+$}{};
 
@@ -372,6 +389,10 @@ use strict;
         return $url;
     }
 
+    sub _getRawCookie {
+        return $ENV{HTTP_COOKIE} || $ENV{COOKIE} || '';
+    }
+
 =pod
 
 =head2 getParsedCookies()
@@ -382,23 +403,46 @@ use strict;
 =cut
     sub getParsedCookies {
         my ($self) = @_;
-        my %cookies = map { (split(/=/, $_, 2)) } split(/;\s*/, $ENV{HTTP_COOKIE});
+        my %cookies = map { (map { $self->urlDecode($_) } split(/=/, $_, 2)) }
+            split(/;\s*/, $self->_getRawCookie);
         return \%cookies;
     }
 
-=pod
+    # added for v0.06
+    # for compatibility with CGI.pm
+    # may want to create an object here
+    sub cookie {
+        my ($self, @args) = @_;
+        my $map_list = [ 'name', [ 'value', 'values' ], 'path', 'expires', 'domain', 'secure' ];
+        my $params = $self->_parse_sub_params($map_list, \@args);
+        if (exists($$params{value})) {
+            return $params;
+        } else {
+            my $cookies = $self->getParsedCookies;
+            if ($cookies and %$cookies) {
+                return $$cookies{$$params{name}};
+            }
+            return '';
+        }
+        return $params;
+    }
 
-=head2 parse({ max_post_size => $max_bytes })
+# =pod
 
- Parses the CGI parameters.  GET and POST (both url-encoded and
- multipart/form-data encodings), including file uploads, are
- supported.  If the request method is POST, you may pass a
- maximum number of bytes to accept via POST.  This can be used to
- limit the size of file uploads, for example.
+# =head2 parse({ max_post_size => $max_bytes })
 
-=cut
+#  Parses the CGI parameters.  GET and POST (both url-encoded and
+#  multipart/form-data encodings), including file uploads, are
+#  supported.  If the request method is POST, you may pass a
+#  maximum number of bytes to accept via POST.  This can be used to
+#  limit the size of file uploads, for example.
+
+# =cut
     sub parse {
         my ($self, $args) = @_;
+
+        return 1 if $$self{_already_parsed};
+        $$self{_already_parsed} = 1;
 
         $args = {} unless ref($args) eq 'HASH';
 
@@ -443,15 +487,16 @@ use strict;
 
 =head2 param($name)
 
- Returns the CGI parameter with name $name.  The parse() method
- must be called before the CGI parameters will be available.  If
- called in array context, it returns an array.  In scalar
- context, it returns an array reference for multivalued fields,
- and a scalar for single-valued fields.
+ Returns the CGI parameter with name $name.  If called in array
+ context, it returns an array.  In scalar context, it returns an
+ array reference for multivalued fields, and a scalar for
+ single-valued fields.
 
 =cut
     sub param {
         my ($self, $name) = @_;
+        $self->parse;
+        
         if (scalar(@_) == 1 and wantarray()) {
             my $params = $$self{_params};
             my $order = $$self{_param_order};
@@ -469,18 +514,17 @@ use strict;
 
 =pod
 
-=head2 vars($delimiter)
+=head2 getVars($delimiter), vars($delimiter), Vars($delimiter)
 
- Also Vars() to be compatible with CGI.pm.  The parse() method
- must be called before this one.  Returns a reference to a tied
- hash containing key/value pairs corresponding to each CGI
- parameter.  For multivalued fields, the value is an array ref,
- with each element being one of the values.  If you pass in a
- value for the delimiter, multivalued fields will be return as a
- string of values delimited by the delimiter you passed in.
+ Also Vars() to be compatible with CGI.pm.  Returns a reference
+ to a tied hash containing key/value pairs corresponding to each
+ CGI parameter.  For multivalued fields, the value is an array
+ ref, with each element being one of the values.  If you pass in
+ a value for the delimiter, multivalued fields will be returned
+ as a string of values delimited by the delimiter you passed in.
 
 =cut
-    sub vars {
+    sub getVars {
         my ($self, $multivalue_delimiter) = @_;
         if (defined($$self{_multivalue_delimiter}) and $$self{_multivalue_delimiter} ne '') {
             $multivalue_delimiter = $$self{_multivalue_delimiter}
@@ -489,6 +533,8 @@ use strict;
             $$self{_multivalue_delimiter} = $multivalue_delimiter;
         }
 
+        $self->parse;
+        
         if (wantarray()) {
             my $params = $$self{_params};
             my %vars = %$params;
@@ -513,8 +559,310 @@ use strict;
 
         return \%vars;
     }
-    *Vars = \&vars;
+    *vars = \&getVars;
+    *Vars = \&getVars;
 
+=pod
+
+# Other information provided by the CGI environment
+
+=head2 getPathInfo(), path_info()
+
+ Returns additional virtual path information from the URL (if
+ any) after your script.
+
+=cut
+    # added for 0.06
+    sub getPathInfo {
+        my ($self) = @_;
+        return $$self{_path_info} if defined($$self{_path_info});
+        my $path_info = defined($ENV{PATH_INFO}) ? $ENV{PATH_INFO} : '';
+        $$self{_path_info} = $path_info;
+        return $path_info;
+    }
+    *path_info = \&getPathInfo;
+
+=pod
+
+=head2 getRequestMethod(), request_method()
+
+ Return the request method, i.e., GET, POST, HEAD, or PUT.
+
+=cut
+    # added for 0.06
+    sub getRequestMethod {
+        return $ENV{REQUEST_METHOD};
+    }
+    *request_method = \&getRequestMethod;
+
+=pod
+
+=head2 getContentType(), content_type()
+
+ Return the content type.
+
+=cut
+    # added for 0.06
+    sub getContentType {
+        return $ENV{CONTENT_TYPE};
+    }
+    *content_type = \&getContentType;
+
+=pod
+
+=head2 getPathTranslated(), path_translated()
+
+ Return the physical path information if provided in the CGI environment.
+
+=cut
+    # added for 0.06
+    sub getPathTranslated {
+        return $ENV{PATH_TRANSLATED};
+    }
+    *path_translated = \&getPathTranslated;
+
+=pod
+
+=head2 getQueryString(), query_string()
+
+ Return a query string created from the current parameters.
+
+=cut
+    # create a query string from current CGI params
+    # added for 0.06
+    sub getQueryString {
+        my ($self) = @_;
+        my $fields = $self->getVars;
+        return $self->urlEncodeVars($fields);
+    }
+    *query_string = \&getQueryString;
+
+=pod
+
+=head2 getHeader(@args), header(@args)
+
+ Generates HTTP headers.  Standard arguments are content_type,
+ cookie, target, expires, and charset.  These should be passed as
+ name/value pairs.  If only one argument is passed, it is assumed
+ to be the 'content_type' argument.  If no values are passed, the
+ content type is assumed to be 'text/html'.  The charset defaults
+ to ISO-8859-1.  A hash reference can also be passed.  E.g.,
+
+     print $cgi_obj->getHeader({ content_type => 'text/html', expires => '+3d' });
+
+ The names 'content-type', and 'type' are aliases for
+ 'content_type'.  The arguments may also be passed CGI.pm style
+ with a '-' in front, e.g.
+
+     print $cgi_obj->getHeader( -content_type => 'text/html', -expires => '+3d' );
+
+=cut
+    sub getHeader {
+        my ($self, @args) = @_;
+        my $arg_count = scalar(@args);
+        if ($arg_count == 0) {
+            return "Content-Type: text/html\r\n\r\n";
+        }
+        if ($arg_count == 1) {
+            # content-type provided
+            return "Content-Type: $args[0]\r\n\r\n";
+        }
+
+        my $map_list = [ [ 'type', 'content-type', 'content_type' ],
+                         'status',
+                         [ 'cookie', 'cookies' ],
+                         'target', 'expires', 'nph', 'charset', 'attachment',
+                       ];
+        my $params = $self->_parse_sub_params($map_list, \@args);
+        
+        my $charset = $$params{charset} || 'ISO-8859-1';
+        my $content_type = $$params{type};
+        $content_type ||= 'text/html' unless defined($content_type);
+        $content_type .= "; charset=$charset"
+            if $content_type =~ /^text/ and $content_type !~ /\bcharset\b/;
+
+        # FIXME: handle NPH stuff
+
+        my $headers = [];
+        push @$headers, "Status: $$params{status}" if defined($$params{status});
+        push @$headers, "Window-Target: $$params{target}" if defined($$params{target});
+        
+        my $cookies = $$params{cookie};
+        if (defined($cookies) and $cookies) {
+            my $cookie_array = ref($cookies) eq 'ARRAY' ? $cookies : [ $cookies ];
+            foreach my $cookie (@$cookie_array) {
+                # handle plain strings as well as CGI::Cookie objects and hashes
+                my $str = '';
+                if (UNIVERSAL::isa($cookie, 'CGI::Cookie')) {
+                    $str = $cookie->as_string;
+                } elsif (ref($cookie) eq 'HASH') {
+                    $str = $self->_createCookieStrFromHash($cookie);    
+                } else {
+                    $str = $cookie;
+                }
+                push @$headers, "Set-Cookie: $str" unless $str eq '';
+            }
+        }
+
+        if (defined($$params{expires})) {
+            my $expire = $self->_canonicalizeHttpDate($$params{expires});
+            push @$headers, "Expires: $expire";
+        }
+
+        if (defined($$params{expires}) or (defined($cookies) and $cookies)) {
+            push @$headers, "Date: " . $self->_canonicalizeHttpDate(0);
+        }
+        
+        push @$headers, qq{Content-Disposition: attachment; filename="$$params{attachment}"}
+            if defined($$params{attachment});
+        push @$headers, "Content-Type: $content_type" if defined($content_type);
+
+        # FIXME: make line endings work on windoze
+        return join("\r\n", @$headers) . "\r\n\r\n";
+    }
+    *header = \&getHeader;
+
+    sub _createCookieStrFromHash {
+        my ($self, $hash) = @_;
+        my $pairs = [];
+
+        my $map_list = [ 'name', [ 'value', 'values' ], 'path', 'expires', 'domain', 'secure' ];
+        my $params = $self->_parse_sub_params($map_list, [ $hash ]);
+
+        my $value = $$params{value};
+        if (my $ref = ref($value)) {
+            if ($ref eq 'ARRAY') {
+                $value = join('&', map { $self->urlEncode($_) } @$value);
+            } elsif ($ref eq 'HASH') {
+                $value = join('&', map { $self->urlEncode($_) } %$value);
+            }
+        } else {
+            $value = $self->urlEncode($value);
+        }
+        push @$pairs, qq{$$params{name}=$value};
+
+        my $path = $$params{path} || '/';
+        push @$pairs, qq{path=$path};
+        
+        push @$pairs, qq{domain=$$params{domain}} if $$params{domain};
+
+        if ($$params{expires}) {
+            my $expire = $self->_canonicalizeCookieDate($$params{expires});
+            push @$pairs, qq{expires=$expire};
+        }
+
+        push @$pairs, qq{secure} if $$params{secure};
+
+        return join('; ', @$pairs);
+    }
+    
+    sub _canonicalizeCookieDate {
+        my ($self, $expire) = @_;
+        return $self->_canonicalizeDate('-', $expire);
+    }
+    
+    sub _canonicalizeHttpDate {
+        my ($self, $expire) = @_;
+        return $self->_canonicalizeDate(' ', $expire);
+        
+        my $time = $self->_get_expire_time_from_offset($expire);
+        return $time unless $time =~ /^\d+$/;
+
+        my $wdays = [ qw(Sun Mon Tue Wed Thu Fri Sat) ];
+        my $months = [ qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec) ];
+        
+        my $sep = ' ';
+
+        my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($time);
+        $year += 1900 unless $year > 1000;
+        return sprintf "%s, %02d$sep%s$sep%04d %02d:%02d:%02d GMT",
+            $$wdays[$wday], $mday, $$months[$mon], $year, $hour, $min, $sec;
+    }
+
+    sub _canonicalizeDate {
+        my ($self, $sep, $expire) = @_;
+        my $time = $self->_get_expire_time_from_offset($expire);
+        return $time unless $time =~ /^\d+$/;
+
+        my $wdays = [ qw(Sun Mon Tue Wed Thu Fri Sat) ];
+        my $months = [ qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec) ];
+
+        my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($time);
+        $year += 1900 unless $year > 1000;
+        return sprintf "%s, %02d$sep%s$sep%04d %02d:%02d:%02d GMT",
+            $$wdays[$wday], $mday, $$months[$mon], $year, $hour, $min, $sec;
+
+    }
+
+    sub _get_expire_time_from_offset {
+        my ($self, $offset) = @_;
+        my $ret_offset = 0;
+        if (not $offset or lc($offset) eq 'now') {
+            $ret_offset = 0;
+        } elsif ($offset =~ /^\d+$/) {
+            return $offset;
+        } elsif ($offset =~ /^([-+]?(?:\d+|\d*\.\d*))([mhdMy]?)/) {
+            my $map = { 's' => 1,
+                        'm' => 60,
+                        'h' => 60 * 60,
+                        'd' => 60 * 60 * 24,
+                        'M' => 60 * 60 * 24 * 30,
+                        'y' => 60 * 60 * 24 * 365,
+                      };
+            $ret_offset = ($$map{$2} || 1) * $1;
+        } else {
+            $ret_offset = $offset;
+        }
+
+        return time() + $ret_offset;
+    }
+    
+    # canonicalize parameters so we can be compatible with CGI.pm
+    sub _parse_sub_params {
+        my ($self, $map_list, $args) = @_;
+
+        my $arg_count = scalar(@$args);
+        return {} if $arg_count == 0;
+
+        my $hash;
+        if ($arg_count == 1) {
+            if (ref($$args[0]) eq 'HASH') {
+                $hash = $$args[0];
+            } else {
+                if (ref($$map_list[0]) eq 'ARRAY') {
+                    return { $$map_list[0][0] => $$args[0] };
+                } else {
+                    return { $$map_list[0] => $$args[0] };
+                }
+            }
+        } else {
+            $hash = { @$args };
+        }
+
+        my $return_hash = {};
+        foreach my $key (keys %$hash) {
+            my $orig_key = $key;
+            $key =~ s/^-{1,2}//;
+            $key = lc($key);
+            foreach my $e (@$map_list) {
+                if (ref($e) eq 'ARRAY') {
+                    my $canon_key = $$e[0];
+                    foreach my $e2 (@$e) {
+                        if ($e2 eq $key) {
+                            $$return_hash{$canon_key} = $$hash{$orig_key};
+                        }
+                    }
+                } else {
+                    if ($e eq $key) {
+                        $$return_hash{$e} = $$hash{$orig_key};
+                    }
+                }
+            }
+        }
+
+        return $return_hash;
+    }
+    
     sub TIEHASH {
         my ($proto, $obj) = @_;
         return $obj;
@@ -711,6 +1059,7 @@ use strict;
     # provided for compatibility with CGI.pm
     sub uploadInfo {
         my ($self, $file_name) = @_;
+        $self->parse;
         return $$self{_upload_info}{$file_name};
     }
 
@@ -799,6 +1148,6 @@ __END__
 
 =head1 VERSION
 
- 0.05
+ 0.06
 
 =cut

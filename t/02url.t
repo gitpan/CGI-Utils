@@ -3,7 +3,7 @@
 # Creation date: 2003-08-13 22:27:32
 # Authors: Don
 # Change log:
-# $Id: 02url.t,v 1.5 2004/02/16 07:38:02 don Exp $
+# $Id: 02url.t,v 1.6 2004/03/03 06:40:00 don Exp $
 
 use strict;
 use Carp;
@@ -13,7 +13,7 @@ use Carp;
     local($SIG{__DIE__}) = sub { &Carp::cluck(); exit 0 };
 
     use Test;
-    BEGIN { plan tests => 12 }
+    BEGIN { plan tests => 13 }
 
     use CGI::Utils;
 
@@ -30,6 +30,9 @@ use Carp;
 
     my $self_url = 'http://mydomain.com/cgi-bin/test.cgi';
     ok($utils->getSelfRefUrl eq $self_url);
+
+    my $self_url_with_args = 'http://mydomain.com/cgi-bin/test.cgi?test=1';
+    ok($utils->getSelfRefUrlWithParams({ test => 1 }) eq $self_url_with_args);
 
     my $self_dir = 'http://mydomain.com/cgi-bin';
     ok($utils->getSelfRefUrlDir eq $self_dir);

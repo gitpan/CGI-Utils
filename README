@@ -6,8 +6,6 @@ SYNOPSIS
      use CGI::Utils;
      my $utils = CGI::Utils->new;
 
-     $utils->parse;
-
      my $fields = $utils->vars; # or $utils->Vars
      my $field1 = $$fields{field1};
 
@@ -90,6 +88,10 @@ METHODS
      Returns a url referencing the current script along with any
      query string parameters passed via a GET method.
 
+  getSelfRefUrlWithParams($params)
+     Returns a url reference the current script along with the given
+     hash of parameters added onto the end of url as a query string.
+
   getSelfRefUrlDir()
      Returns a url referencing the directory part of the current url.
 
@@ -110,28 +112,53 @@ METHODS
      Parses the cookies passed to the server.  Returns a hash of
      key/value pairs representing the cookie names and values.
 
-  parse({ max_post_size => $max_bytes })
-     Parses the CGI parameters.  GET and POST (both url-encoded and
-     multipart/form-data encodings), including file uploads, are
-     supported.  If the request method is POST, you may pass a
-     maximum number of bytes to accept via POST.  This can be used to
-     limit the size of file uploads, for example.
-
   param($name)
-     Returns the CGI parameter with name $name.  The parse() method
-     must be called before the CGI parameters will be available.  If
-     called in array context, it returns an array.  In scalar
-     context, it returns an array reference for multivalued fields,
-     and a scalar for single-valued fields.
+     Returns the CGI parameter with name $name.  If called in array
+     context, it returns an array.  In scalar context, it returns an
+     array reference for multivalued fields, and a scalar for
+     single-valued fields.
 
-  vars($delimiter)
-     Also Vars() to be compatible with CGI.pm.  The parse() method
-     must be called before this one.  Returns a reference to a tied
-     hash containing key/value pairs corresponding to each CGI
-     parameter.  For multivalued fields, the value is an array ref,
-     with each element being one of the values.  If you pass in a
-     value for the delimiter, multivalued fields will be return as a
-     string of values delimited by the delimiter you passed in.
+  getVars($delimiter), vars($delimiter), Vars($delimiter)
+     Also Vars() to be compatible with CGI.pm.  Returns a reference
+     to a tied hash containing key/value pairs corresponding to each
+     CGI parameter.  For multivalued fields, the value is an array
+     ref, with each element being one of the values.  If you pass in
+     a value for the delimiter, multivalued fields will be returned
+     as a string of values delimited by the delimiter you passed in.
+
+    # Other information provided by the CGI environment
+
+  getPathInfo(), path_info()
+     Returns additional virtual path information from the URL (if
+     any) after your script.
+
+  getRequestMethod(), request_method()
+     Return the request method, i.e., GET, POST, HEAD, or PUT.
+
+  getContentType(), content_type()
+     Return the content type.
+
+  getPathTranslated(), path_translated()
+     Return the physical path information if provided in the CGI environment.
+
+  getQueryString(), query_string()
+     Return a query string created from the current parameters.
+
+  getHeader(@args), header(@args)
+     Generates HTTP headers.  Standard arguments are content_type,
+     cookie, target, expires, and charset.  These should be passed as
+     name/value pairs.  If only one argument is passed, it is assumed
+     to be the 'content_type' argument.  If no values are passed, the
+     content type is assumed to be 'text/html'.  The charset defaults
+     to ISO-8859-1.  A hash reference can also be passed.  E.g.,
+
+         print $cgi_obj->getHeader({ content_type => 'text/html', expires => '+3d' });
+
+     The names 'content-type', and 'type' are aliases for
+     'content_type'.  The arguments may also be passed CGI.pm style
+     with a '-' in front, e.g.
+
+         print $cgi_obj->getHeader( -content_type => 'text/html', -expires => '+3d' );
 
   uploadInfo($file_name)
      Returns a reference to a hash containing the header information
@@ -157,5 +184,5 @@ COPYRIGHT
      itself.
 
 VERSION
-     0.05
+     0.06
 
