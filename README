@@ -122,6 +122,15 @@ METHODS
      Returns a reference to a hash containing the header information
      sent along with a file upload.
 
+EXPORTS
+     You can export methods into your namespace in the usual way.
+     All of the util methods are available for export, e.g.,
+     getSelfRefUrl(), addParamsToUrl(), etc.  Beware, however, that
+     these methods expect to be called as methods.  You can also use
+     the tag :all_utils to import all of the util methods into your
+     namespace.  This allows for incorporating these methods into
+     your class without having to inherit from CGI::Utils.
+
 AUTHOR
      Don Owens <don@owensnet.com>
 
@@ -133,5 +142,5 @@ COPYRIGHT
      itself.
 
 VERSION
-     0.03
+     0.04
 

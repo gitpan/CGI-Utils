@@ -2,7 +2,13 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.23 2003/10/06 03:37:23 don Exp $
+# $Id: Utils.pm,v 1.30 2003/11/30 06:47:26 don Exp $
+
+# Copyright (c) 2003 Don Owens
+
+# All rights reserved. This program is free software; you can
+# redistribute it and/or modify it under the same terms as Perl
+# itself.
 
 =pod
 
@@ -59,17 +65,32 @@
 
 =cut
 
+# TODO
+# cookie() method that CGI.pm has
+
 use strict;
 
 {   package CGI::Utils;
 
-    use vars qw($VERSION);
+    use vars qw($VERSION @ISA @EXPORT_OK @EXPORT %EXPORT_TAGS);
 
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.03'; # update below in POD as well
+        $VERSION = '0.04'; # update below in POD as well
     }
+
+    require Exporter;
+    @ISA = 'Exporter';
+    @EXPORT = ();
+    @EXPORT_OK = qw(urlEncode urlDecode urlEncodeVars urlDecodeVars getSelfRefHostUrl
+                    getSelfRefUrl getSelfRefUrlWithQuery getSelfRefUrlDir addParamsToUrl
+                    getParsedCookies);
+    $EXPORT_TAGS{all_utils} = [ qw(urlEncode urlDecode urlEncodeVars urlDecodeVars
+                                   getSelfRefHostUrl
+                                   getSelfRefUrl getSelfRefUrlWithQuery getSelfRefUrlDir
+                                   addParamsToUrl getParsedCookies)
+                              ];
 
 =pod
 
@@ -190,7 +211,8 @@ use strict;
     sub getSelfRefHostUrl {
         my ($self) = @_;
         my $https = $ENV{HTTPS};
-        my $scheme = (defined($https) and $https eq 'on') ? 'https' : 'http';
+        my $scheme = (defined($https) and lc($https) eq 'on') ? 'https' : 'http';
+        $scheme = 'https' if defined($ENV{SERVER_PORT}) and $ENV{SERVER_PORT} == 443;
         return "$scheme://$ENV{HTTP_HOST}";
     }
 
@@ -304,6 +326,7 @@ use strict;
 
         if ($method eq 'post') {
             my $max_size = $$args{max_post_size} || $$self{_max_post_size};
+            $max_size = 0 unless defined($max_size);
             if ($max_size > 0 and $content_length > $max_size) {
                 return undef;
             }
@@ -375,9 +398,10 @@ use strict;
 =cut
     sub vars {
         my ($self, $multivalue_delimiter) = @_;
-        if ($$self{_multivalue_delimiter} ne '') {
-            $multivalue_delimiter = $$self{_multivalue_delimiter} if $multivalue_delimiter eq '';
-        } elsif ($multivalue_delimiter ne '') {
+        if (defined($$self{_multivalue_delimiter}) and $$self{_multivalue_delimiter} ne '') {
+            $multivalue_delimiter = $$self{_multivalue_delimiter}
+                if not defined($multivalue_delimiter) or $multivalue_delimiter eq '';
+        } elsif (defined($multivalue_delimiter) and $multivalue_delimiter ne '') {
             $$self{_multivalue_delimiter} = $multivalue_delimiter;
         }
 
@@ -560,14 +584,13 @@ use strict;
         my $body;
         my $eol = $self->_getEndOfLineSeq;
         my $end_char = substr($eol, -1, 1);
-        my $buf;
-        my $buf2;
+        my $buf = '';
+        my $buf2 = '';
 
         my $file_name = $$disposition_fields{filename};
         my $info = { 'Content-Type' => $$headers{'content-type'} };
         $$self{_upload_info}{$file_name} = $info;
 
-        # print "got file_name='$file_name'\n";
         my $out_fh = CGI::Utils::UploadFile->new_tmpfile($file_name);
         
         while (my $size = $self->_read($fh, $buf, 4096, 0, $end_char)) {
@@ -577,6 +600,7 @@ use strict;
                ) {
                 $buf2 =~ s/$eol$//;
                 $buf = '';
+                print $out_fh $buf2;
                 last;
             }
             print $out_fh $buf2;
@@ -586,6 +610,7 @@ use strict;
         if ($buf ne '') {
             print $out_fh $buf;
         }
+        select((select($out_fh), $| = 1)[0]);
         seek($out_fh, 0, 0); # seek back to beginning of file
         
         return wantarray ? ($out_fh, $amt_read) : $out_fh;
@@ -666,6 +691,16 @@ __END__
 
 =pod
 
+=head1 EXPORTS
+
+ You can export methods into your namespace in the usual way.
+ All of the util methods are available for export, e.g.,
+ getSelfRefUrl(), addParamsToUrl(), etc.  Beware, however, that
+ these methods expect to be called as methods.  You can also use
+ the tag :all_utils to import all of the util methods into your
+ namespace.  This allows for incorporating these methods into
+ your class without having to inherit from CGI::Utils.
+
 =head1 AUTHOR
 
  Don Owens <don@owensnet.com>
@@ -680,6 +715,6 @@ __END__
 
 =head1 VERSION
 
- 0.03
+ 0.04
 
 =cut
