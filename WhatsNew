@@ -1,3 +1,13 @@
+Version 0.08
+	* setCookie()
+	* More underscore versions of methods
+	* Command-line parsing is now available.
+	* Fixed a bug where a mod_perl environment was always assumed
+	  for some methods
+	* sendHeader()
+	* sendRedirect()
+	* setCookie()
+
 Version 0.07
         * Support for mod_perl and Mason (multipart/form-data for
           mod_perl requires Apache::Request)

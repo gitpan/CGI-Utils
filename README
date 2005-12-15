@@ -40,9 +40,28 @@ DESCRIPTION
      name of the file uploaded.  To get the contents of the file,
      just read from the file handle.
 
+     mod_perl is supported if a value for apache_request is passed to
+     new(), or if the apache request object is available via
+     Apache->request, or if running under HTML::Mason.  See the
+     documentation for the new() method for details.
+
+     If not running in a mod_perl or CGI environment, @ARGV will be
+     searched for key/value pairs in the format
+
+         key1=val1 key2=val2
+
+     If all command-line arguments are in this format, the key/value
+     pairs will be available as if they were passed via a CGI or
+     mod_perl interface.
+
 METHODS
-  new()
-     Returns a new CGI::Utils object.
+  new(\%params)
+     Returns a new CGI::Utils object.  Parameters are optional.
+     CGI::Utils supports mod_perl if the Apache request object is
+     passed as $params{apache_request}, or if it is available via
+     Apache->request, or if running under HTML::Mason.
+
+     You may also pass max_post_size in %params.
 
   urlEncode($str)
      Returns the fully URL-encoded version of the given string.  It
@@ -127,7 +146,7 @@ METHODS
      array reference for multivalued fields, and a scalar for
      single-valued fields.
 
-  getVars($delimiter), vars($delimiter), Vars($delimiter)
+  getVars($delimiter)
      Also Vars() to be compatible with CGI.pm.  Returns a reference
      to a tied hash containing key/value pairs corresponding to each
      CGI parameter.  For multivalued fields, the value is an array
@@ -135,43 +154,45 @@ METHODS
      a value for the delimiter, multivalued fields will be returned
      as a string of values delimited by the delimiter you passed in.
 
+     Aliases: vars(), Vars(), get_args(), args()
+
     # Other information provided by the CGI environment
 
-  getPathInfo(), path_info()
+  getPathInfo(), path_info(), get_path_info();
      Returns additional virtual path information from the URL (if
      any) after your script.
 
-  getRemoteAddr(), remote_addr()
+  getRemoteAddr(), remote_addr(), get_remote_addr()
      Returns the dotted decimal representation of the remote client's
      IP address.
 
-  getRemoteHost(), remote_host()
+  getRemoteHost(), remote_host(), get_remote_host()
      Returns the name of the remote host, or its IP address if the
      name is unavailable.
 
-  getHost(), host(), virtual_host()
+  getHost(), host(), virtual_host(), get_host()
      Returns the name of the host in the URL being accessed.  This is
      sent as the Host header by the web browser.
 
-  getReferer(), referer(), getReferrer(), referrer()
-     Returns the referring URL
+  getReferer(), referer(), get_referer(), getReferrer(), referrer(), get_referrer()
+     Returns the referring URL.
 
-  getProtocol(), protocol()
+  getProtocol(), protocol(), get_protocol()
      Returns the protocol, i.e., http or https.
 
-  getRequestMethod(), request_method()
+  getRequestMethod(), request_method(), get_request_method()
      Returns the request method, i.e., GET, POST, HEAD, or PUT.
 
-  getContentType(), content_type()
+  getContentType(), content_type(), get_content_type()
      Returns the content type.
 
-  getPathTranslated(), path_translated()
+  getPathTranslated(), path_translated(), get_path_translated()
      Returns the physical path information if provided in the CGI environment.
 
-  getQueryString(), query_string()
+  getQueryString(), query_string(), get_query_string()
      Returns a query string created from the current parameters.
 
-  getHeader(@args), header(@args)
+  getHeader(@args)
      Generates HTTP headers.  Standard arguments are content_type,
      cookie, target, expires, and charset.  These should be passed as
      name/value pairs.  If only one argument is passed, it is assumed
@@ -197,24 +218,56 @@ METHODS
 
         print $cgi_obj->getHeader(cookies => [ $cookie1, $cookie2 ]);
 
-  getRedirect($url), redirect($url)
+     Aliases: header(), get_header
+
+  sendHeader(@args)
+     Like getHeader() above, except sends it.  Under mod_perl, this
+     sends the header(s) via the Apache request object.  In a CGI
+     environment, this prints the header(s) to STDOUT.
+
+     Aliases: send_header()
+
+  getRedirect($url)
      Returns the header required to do a redirect.  This method also
      accepts named arguments, e.g.,
 
-         print $cgi_obj->getRedirect(url => $url);
+         print $cgi_obj->getRedirect(url => $url, status => 302,
+                                     cookie => \%cookie_params);
 
      You may also pass a cookies argument as in getHeader().
 
-  getLocalRedirect(), local_redirect()
+     Aliases: redirect()
+
+  sendRedirect($url)
+     Like getRedirect(), but in a CGI environment the output is sent
+     to STDOUT, and in a mod_perl environment, the appropriate
+     headers are set.  The return value is 1 for a CGI environment
+     when successful, and Apache::Constants::REDIRECT in a mod_perl
+     environment, so you can do something like
+
+     return $utils->sendRedirect($url)
+
+     in a mod_perl handler.
+
+     Aliases: send_redirect()
+
+  getLocalRedirect(), local_redirect(), get_local_redirect()
      Like getRedirect(), except that the redirect URL is converted
      from relative to absolute, including the host.
 
-  getCookieString(\%hash)
+  getCookieString(\%hash), get_cookie_string(\%hash);
      Returns a string to pass as the value of a 'Set-Cookie' header.
 
-  getSetCookieString(\%hash), getSetCookieString([ \%hash1, \%hash2 ])
-     Returns a string to pass as 'Set-Cookie' header(s), including
-     the line ending(s).
+  getSetCookieString(\%params), getSetCookieString([ \%params1, \%params2 ])
+     Returns a string to pass as the 'Set-Cookie' header(s), including
+     the line ending(s).  Also accepts a simple hash with key/value pairs.
+
+  setCookie(\%params), set_cookie(\%params);
+     Sets the cookie generated by getCookieString.  That is, in a
+     mod_perl environment, it adds an outgoing header to set the
+     cookie.  In a CGI environment, it prints the value of
+     getSetCookieString to STDOUT (including the end-of-line
+     sequence).
 
   uploadInfo($file_name)
      Returns a reference to a hash containing the header information
@@ -238,12 +291,12 @@ AUTHOR
      Don Owens <don@owensnet.com>
 
 COPYRIGHT
-     Copyright (c) 2003-2004 Don Owens
+     Copyright (c) 2003-2005 Don Owens
 
      All rights reserved. This program is free software; you can
      redistribute it and/or modify it under the same terms as Perl
      itself.
 
 VERSION
-     0.07
+     0.08
 

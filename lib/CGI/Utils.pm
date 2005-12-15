@@ -2,9 +2,9 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.52 2004/10/26 06:16:03 don Exp $
+# $Id: Utils.pm,v 1.58 2005/12/15 04:11:16 don Exp $
 
-# Copyright (c) 2003-2004 Don Owens
+# Copyright (c) 2003-2005 Don Owens
 
 # All rights reserved. This program is free software; you can
 # redistribute it and/or modify it under the same terms as Perl
@@ -58,12 +58,26 @@
  name of the file uploaded.  To get the contents of the file,
  just read from the file handle.
 
+ mod_perl is supported if a value for apache_request is passed to
+ new(), or if the apache request object is available via
+ Apache->request, or if running under HTML::Mason.  See the
+ documentation for the new() method for details.
+
+ If not running in a mod_perl or CGI environment, @ARGV will be
+ searched for key/value pairs in the format
+
+     key1=val1 key2=val2
+
+ If all command-line arguments are in this format, the key/value
+ pairs will be available as if they were passed via a CGI or
+ mod_perl interface.
+
 =head1 METHODS
 
 =cut
 
 # TODO
-# work under mod_perl 1 and 2
+# modify CGI::Utils::UploadFile to use hidden attributes instead of making up class names
 # cache values like parsed cookies
 # NPH stuff for getHeader()
 
@@ -76,7 +90,7 @@ use strict;
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.07'; # update below in POD as well
+        $VERSION = '0.08'; # update below in POD as well
     }
     
     require Exporter;
@@ -96,9 +110,14 @@ use strict;
 
 =pod
 
-=head2 new()
+=head2 new(\%params)
 
- Returns a new CGI::Utils object.
+ Returns a new CGI::Utils object.  Parameters are optional.
+ CGI::Utils supports mod_perl if the Apache request object is
+ passed as $params{apache_request}, or if it is available via
+ Apache->request, or if running under HTML::Mason.
+
+ You may also pass max_post_size in %params.
 
 =cut
     sub new {
@@ -128,6 +147,20 @@ use strict;
                 $r = Apache->request;
                 return $r if $r;
             }
+        }
+
+        return;
+    }
+
+    sub _getModPerlVersion {
+        if (defined($mod_perl::VERSION)) {
+            if ($mod_perl::VERSION >= 1.99) {
+                return 2;
+            } else {
+                return 1;
+            }
+        } else {
+            return undef;
         }
     }
 
@@ -452,10 +485,15 @@ use strict;
     sub getSelfRefUrlWithQuery {
         my ($self) = @_;
 
-        my $r = $self->_getApacheRequest;
-
         my $url = $self->getSelfRefUrl;
-        my $query_str = $r ? $r->args : $ENV{QUERY_STRING};
+        my $query_str;
+        if ($self->_isModPerl) {
+            my $r = $self->_getApacheRequest;
+            $query_str = $r ? $r->args : $ENV{QUERY_STRING};
+        }
+        else {
+            $query_str = $ENV{QUERY_STRING};
+        }
         if (defined($query_str) and $query_str ne '') {
             return $url . '?' . $query_str;
         }
@@ -558,10 +596,14 @@ use strict;
 
     sub _getRawCookie {
         my $self = shift;
-        
-        my $r = $self->_getApacheRequest;
 
-        return $r ? $r->header_in('Cookie') : ($ENV{HTTP_COOKIE} || $ENV{COOKIE} || '');
+        if ($self->_isModPerl) {
+            my $r = $self->_getApacheRequest;
+            return $r ? $r->header_in('Cookie') : ($ENV{HTTP_COOKIE} || $ENV{COOKIE} || '');
+        }
+        else {
+            return $ENV{HTTP_COOKIE} || $ENV{COOKIE} || '';
+        }
     }
 
 =pod
@@ -621,12 +663,46 @@ use strict;
             # If running under mod_perl, grab the GET or POST data
             my $rv = $self->_modPerlParse($args);
             return $rv if $rv;
+        } elsif (not $ENV{'GATEWAY_INTERFACE'}) {
+            # Not CGI, so must be commandline
+            if (scalar(@ARGV)) {
+                return $self->_cmdLineParse(\@ARGV);
+            }
         }
 
 
         # check for mod_perl - GATEWAY_INTERFACE =~ m{^CGI-Perl/}
         # check for PerlEx - GATEWAY_INTERFACE =~ m{^CGI-PerlEx}
 
+        return $self->_cgiParse($args);
+    }
+
+    sub _cmdLineParse {
+        my $self = shift;
+        my $args = shift;
+
+        my %params;
+        foreach my $arg (@$args) {
+            if ($arg =~ /^([^=]+)=(.*)$/s) {
+                my $key = $1;
+                my $val = $2;
+                $params{$key} = $val;
+            }
+            else {
+                # bad param, drop them all
+                return;
+            }
+        }
+
+        $self->{_params} = \%params;
+        
+        return 1;
+    }
+    
+    sub _cgiParse {
+        my $self = shift;
+        my $args = shift;
+        
         my $method = lc($ENV{REQUEST_METHOD});
         my $content_length = $ENV{CONTENT_LENGTH} || 0;
 
@@ -693,26 +769,55 @@ use strict;
             $self->_parseParams($query_string);
             my $method = $self->getRequestMethod;
             if (lc($method) eq 'post') {
-                require Apache::Request;
-                my $apr = Apache::Request->new($r);
-                my $cur_params = $self->{_params};
-                my @params = $apr->param;
-                foreach my $key (@params) {
-                    $cur_params->{$key} = $apr->param($key);
+                unless (defined $CGI::Utils::Has_Apache_Request) {
+                    local($SIG{__DIE__});
+                    if ($mod_perl::VERSION >= 2) {
+                        eval 'require Apache2::Request';
+                        # my $apr = Apache2::RequestUtil->request($r)
+                    } else {
+                        eval 'require Apache::Request';
+                    }
+                    if ($@) {
+                        $CGI::Utils::Has_Apache_Request = 0;
+                    } else {
+                        $CGI::Utils::Has_Apache_Request = 1;
+                    }
                 }
 
-                if ($self->getContentType =~ m|^multipart/form-data|) {
-                    my @uploads = $apr->upload;
-                    foreach my $upload (@uploads) {
-                        my $field_name = $upload->name;
-                        my $fh = $upload->fh;
-                        my $filename = $upload->filename;
-                        my $cgi_style_fh =
-                            CGI::Utils::UploadFile->new_from_handle($filename, $fh);
-                        $self->{_params}->{$field_name} = $cgi_style_fh;
-                        my $info = { 'Content-Type' => $upload->type };
-                        $self->{_upload_info}->{$filename} = $info;
+                if ($CGI::Utils::Has_Apache_Request) {
+                    my $apr = Apache::Request->new($r);
+                    my $cur_params = $self->{_params};
+                    my @params = $apr->param;
+                    foreach my $key (@params) {
+                        my @vals = $apr->param($key);
+                        if (scalar(@vals) > 1) {
+                            $cur_params->{$key} = \@vals;
+                        } else {
+                            $cur_params->{$key} = $vals[0];
+                        }
                     }
+
+                    if ($self->getContentType =~ m|^multipart/form-data|) {
+                        my @uploads = $apr->upload;
+                        foreach my $upload (@uploads) {
+                            my $field_name = $upload->name;
+                            my $fh = $upload->fh;
+                            my $filename = $upload->filename;
+                            my $cgi_style_fh =
+                                CGI::Utils::UploadFile->new_from_handle($filename, $fh);
+                            $self->{_params}->{$field_name} = $cgi_style_fh;
+                            my $info = { 'Content-Type' => $upload->type };
+                            $self->{_upload_info}->{$filename} = $info;
+                        }
+                    }
+                } elsif ($self->_isCgi) {
+                    # Using the perl-script handler that provides
+                    # a CGI environment under mod_perl.  So fall
+                    # back to getting everything from the CGI
+                    # environment.
+                    return $self->_cgiParse($args);
+                } else {
+                    return undef;
                 }
             }
 
@@ -753,7 +858,7 @@ use strict;
 
 =pod
 
-=head2 getVars($delimiter), vars($delimiter), Vars($delimiter)
+=head2 getVars($delimiter)
 
  Also Vars() to be compatible with CGI.pm.  Returns a reference
  to a tied hash containing key/value pairs corresponding to each
@@ -761,6 +866,8 @@ use strict;
  ref, with each element being one of the values.  If you pass in
  a value for the delimiter, multivalued fields will be returned
  as a string of values delimited by the delimiter you passed in.
+
+ Aliases: vars(), Vars(), get_args(), args()
 
 =cut
     sub getVars {
@@ -800,12 +907,15 @@ use strict;
     }
     *vars = \&getVars;
     *Vars = \&getVars;
+    *get_vars = \&getVars;
+    *get_args = \&getVars;
+    *args = \&getVars;
 
 =pod
 
 # Other information provided by the CGI environment
 
-=head2 getPathInfo(), path_info()
+=head2 getPathInfo(), path_info(), get_path_info();
 
  Returns additional virtual path information from the URL (if
  any) after your script.
@@ -815,6 +925,7 @@ use strict;
     sub getPathInfo {
         my ($self) = @_;
         return $$self{_path_info} if defined($$self{_path_info});
+        
         my $r = $self->_getApacheRequest;
 
         my $path_info = $r ? $r->path_info : (defined($ENV{PATH_INFO}) ? $ENV{PATH_INFO} : '');
@@ -822,10 +933,11 @@ use strict;
         return $path_info;
     }
     *path_info = \&getPathInfo;
+    *get_path_info = \&getPathInfo;
 
 =pod
 
-=head2 getRemoteAddr(), remote_addr()
+=head2 getRemoteAddr(), remote_addr(), get_remote_addr()
 
  Returns the dotted decimal representation of the remote client's
  IP address.
@@ -837,10 +949,11 @@ use strict;
         return $self->_fromCgiOrModPerlConnection('remote_ip', 'REMOTE_ADDR');
     }
     *remote_addr = \&getRemoteAddr;
+    *get_remote_addr = \&getRemoteAddr;
 
 =pod
 
-=head2 getRemoteHost(), remote_host()
+=head2 getRemoteHost(), remote_host(), get_remote_host()
 
  Returns the name of the remote host, or its IP address if the
  name is unavailable.
@@ -858,10 +971,11 @@ use strict;
         return $host;
     }
     *remote_host = \&getRemoteHost;
+    *get_remote_host = \&getRemoteHost;
 
 =pod
 
-=head2 getHost(), host(), virtual_host()
+=head2 getHost(), host(), virtual_host(), get_host()
 
  Returns the name of the host in the URL being accessed.  This is
  sent as the Host header by the web browser.
@@ -874,12 +988,13 @@ use strict;
     }
     *host = \&getHost;
     *virtual_host = \&getHost;
+    *get_host = \&getHost;
 
 =pod
 
-=head2 getReferer(), referer(), getReferrer(), referrer()
+=head2 getReferer(), referer(), get_referer(), getReferrer(), referrer(), get_referrer()
 
- Returns the referring URL
+ Returns the referring URL.
 
 =cut
     # added for v0.07
@@ -889,12 +1004,14 @@ use strict;
         return $self->_getHttpHeader('Referer');
     }
     *referer = \&getReferer;
+    *get_referer = \&getReferer;
     *getReferrer = \&getReferer;
     *referrer = \&getReferer;
+    *get_referrer = \&getReferer;
 
 =pod
 
-=head2 getProtocol(), protocol()
+=head2 getProtocol(), protocol(), get_protocol()
 
  Returns the protocol, i.e., http or https.
 
@@ -910,10 +1027,11 @@ use strict;
         return $proto;
     }
     *protocol = \&getProtocol;
+    *get_protocol = \&getProtocol;
 
 =pod
 
-=head2 getRequestMethod(), request_method()
+=head2 getRequestMethod(), request_method(), get_request_method()
 
  Returns the request method, i.e., GET, POST, HEAD, or PUT.
 
@@ -924,10 +1042,11 @@ use strict;
         return $self->_fromCgiOrModPerl('method', 'REQUEST_METHOD');
     }
     *request_method = \&getRequestMethod;
+    *get_request_method = \&getRequestMethod;
 
 =pod
 
-=head2 getContentType(), content_type()
+=head2 getContentType(), content_type(), get_content_type()
 
  Returns the content type.
 
@@ -942,10 +1061,11 @@ use strict;
         }
     }
     *content_type = \&getContentType;
+    *get_content_type = \&getContentType;
 
 =pod
 
-=head2 getPathTranslated(), path_translated()
+=head2 getPathTranslated(), path_translated(), get_path_translated()
 
  Returns the physical path information if provided in the CGI environment.
 
@@ -956,10 +1076,11 @@ use strict;
         return $self->_fromCgiOrModPerl('filename', 'PATH_TRANSLATED');
     }
     *path_translated = \&getPathTranslated;
+    *get_path_translated = \&getPathTranslated;
 
 =pod
 
-=head2 getQueryString(), query_string()
+=head2 getQueryString(), query_string(), get_query_string()
 
  Returns a query string created from the current parameters.
 
@@ -972,10 +1093,11 @@ use strict;
         return $self->urlEncodeVars($fields);
     }
     *query_string = \&getQueryString;
+    *get_query_string = \&getQueryString;
 
 =pod
 
-=head2 getHeader(@args), header(@args)
+=head2 getHeader(@args)
 
  Generates HTTP headers.  Standard arguments are content_type,
  cookie, target, expires, and charset.  These should be passed as
@@ -1002,6 +1124,8 @@ use strict;
 
     print $cgi_obj->getHeader(cookies => [ $cookie1, $cookie2 ]);
 
+ Aliases: header(), get_header
+
 =cut
     sub getHeader {
         my ($self, @args) = @_;
@@ -1018,6 +1142,7 @@ use strict;
                          'status',
                          [ 'cookie', 'cookies' ],
                          'target', 'expires', 'nph', 'charset', 'attachment',
+                         'mod_perl',
                        ];
         my ($params, $extras) = $self->_parse_sub_params($map_list, \@args);
         
@@ -1063,6 +1188,19 @@ use strict;
             if defined($$params{attachment});
         push @$headers, "Content-Type: $content_type" if defined($content_type) and $content_type ne '';
 
+        if ($params->{mod_perl}) {
+            my $header_list = [];
+            
+            foreach my $field (sort keys %$extras) {
+                my $val = $$extras{$field};
+                $field =~ s/\b(.)/\U$1/g;
+                $field = ucfirst($field);
+                push @$header_list, [ $field, $val ];
+            }
+
+            return $header_list;
+        }
+        
         foreach my $field (sort keys %$extras) {
             my $val = $$extras{$field};
             $field =~ s/\b(.)/\U$1/g;
@@ -1074,17 +1212,125 @@ use strict;
         return join("\r\n", @$headers) . "\r\n\r\n";
     }
     *header = \&getHeader;
+    *get_header = \&getHeader;
 
 =pod
 
-=head2 getRedirect($url), redirect($url)
+=head2 sendHeader(@args)
+
+ Like getHeader() above, except sends it.  Under mod_perl, this
+ sends the header(s) via the Apache request object.  In a CGI
+ environment, this prints the header(s) to STDOUT.
+
+ Aliases: send_header()
+
+=cut
+    sub sendHeader {
+        my ($self, @args) = @_;
+        my $mod_perl = 0;
+        my $r;
+        if ($self->_isModPerl and $r = $self->_getApacheRequest) {
+            $mod_perl = 1;
+        }
+        
+        my $arg_count = scalar(@args);
+        if ($arg_count == 0) {
+            if ($mod_perl) {
+                $r->err_header_out('Content-Type' => 'text/html');
+            } else {
+                print STDOUT "Content-Type: text/html\r\n\r\n";
+            }
+            return 1;
+        }
+        
+        if ($arg_count == 1 and ref($args[0]) ne 'HASH') {
+            # content-type provided
+            if ($mod_perl) {
+                $r->err_header_out('Content-Type' => $args[0]);
+            } else {
+                print STDOUT "Content-Type: $args[0]\r\n\r\n";
+            }
+            
+            return 1;
+        }
+
+        unless ($mod_perl) {
+            my $str = $self->getHeader(@args);
+            print STDOUT $str;
+            return 1;
+        }
+
+        return undef unless $r;
+
+        my $headers = [];
+        if (ref($args[0]) eq 'HASH') {
+            my %args = %{$args[0]};
+            $args{mod_perl} = 1;
+            $headers = $self->getHeader(\%args);
+        } else {
+            push @args, 'mod_perl', 1;
+            $headers = $self->getHeader(@args);
+        }
+
+        my $rv = $self->apache_ok;
+        foreach my $header (@$headers) {
+            if (lc($header->[0]) eq 'set-cookie') {
+                $r->err_headers_out()->add(@$header);
+            }
+            else {
+                if (lc($header->[0]) eq 'location') {
+                    $rv = $self->apache_redirect;
+                }
+                $r->err_header_out(@$header);
+            }
+        }
+
+        return $rv;
+    }
+    *send_header = \&sendHeader;
+
+    sub load_apache_constants {
+        unless (defined $CGI::Utils::Loaded_Apache_Constants) {
+            local($SIG{__DIE__});
+            eval 'use Apache::Constants ()';
+            $CGI::Utils::Loaded_Apache_Constants = 1;
+        }
+    }
+    
+    sub apache_ok {
+        shift()->load_apache_constants;
+        return Apache::Constants::OK();
+    }
+
+    sub apache_redirect {
+        shift()->load_apache_constants;
+        return Apache::Constants::REDIRECT();
+    }
+
+    sub apache_not_found {
+        shift()->load_apache_constants;
+        return Apache::Constants::NOT_FOUND();
+    }
+
+    sub apache_declined {
+        shift()->load_apache_constants;
+        return Apache::Constants::DECLINED();
+    }
+    
+
+=pod
+
+=head2 getRedirect($url)
 
  Returns the header required to do a redirect.  This method also
  accepts named arguments, e.g.,
 
-     print $cgi_obj->getRedirect(url => $url);
+     print $cgi_obj->getRedirect(url => $url, status => 302,
+                                 cookie => \%cookie_params);
 
  You may also pass a cookies argument as in getHeader().
+
+ Aliases: redirect()
 
 =cut
     sub getRedirect {
@@ -1095,13 +1341,44 @@ use strict;
                          'target',
                        ];
         my ($params, $extras) = $self->_parse_sub_params($map_list, \@args);
+        $params->{status} = 302 unless $params->{status};
         return $self->header({ type => '', %$params, %$extras });
     }
     *redirect = \&getRedirect;
 
 =pod
 
-=head2 getLocalRedirect(), local_redirect()
+=head2 sendRedirect($url)
+
+ Like getRedirect(), but in a CGI environment the output is sent
+ to STDOUT, and in a mod_perl environment, the appropriate
+ headers are set.  The return value is 1 for a CGI environment
+ when successful, and Apache::Constants::REDIRECT in a mod_perl
+ environment, so you can do something like
+
+ return $utils->sendRedirect($url)
+
+ in a mod_perl handler.
+
+ Aliases: send_redirect()
+
+=cut
+    sub send_redirect {
+        my ($self, @args) = @_;
+        my $map_list = [ [ 'location', 'uri', 'url' ],
+                         'status',
+                         [ 'cookie', 'cookies' ],
+                         'target',
+                       ];
+        my ($params, $extras) = $self->_parse_sub_params($map_list, \@args);
+        $params->{status} = 302 unless $params->{status};
+        return $self->send_header({ type => '', %$params, %$extras });        
+    }
+    *sendRedirect = \&send_redirect;
+
+=pod
+
+=head2 getLocalRedirect(), local_redirect(), get_local_redirect()
 
  Like getRedirect(), except that the redirect URL is converted
  from relative to absolute, including the host.
@@ -1121,10 +1398,12 @@ use strict;
         }
         return $self->getRedirect(%$params);
     }
+    *local_redirect = \&getLocalRedirect;
+    *get_local_redirect = \&getLocalRedirect;
 
 =pod
 
-=head2 getCookieString(\%hash)
+=head2 getCookieString(\%hash), get_cookie_string(\%hash);
 
  Returns a string to pass as the value of a 'Set-Cookie' header.
 
@@ -1133,17 +1412,22 @@ use strict;
         my ($self, $hash) = @_;
         return $self->_createCookieStrFromHash($hash);
     }
+    *get_cookie_string = \&getCookieString;
 
 =pod
 
-=head2 getSetCookieString(\%hash), getSetCookieString([ \%hash1, \%hash2 ])
+=head2 getSetCookieString(\%params), getSetCookieString([ \%params1, \%params2 ])
 
- Returns a string to pass as 'Set-Cookie' header(s), including
- the line ending(s).
+ Returns a string to pass as the 'Set-Cookie' header(s), including
+ the line ending(s).  Also accepts a simple hash with key/value pairs.
 
 =cut
     sub getSetCookieString {
         my ($self, $cookies) = @_;
+        if (ref($cookies) eq 'HASH') {
+            my $array = [ map { { name => $_, value => $cookies->{$_} } } keys %$cookies ];
+            $cookies = $array;
+        }
         my $cookie_array = ref($cookies) eq 'ARRAY' ? $cookies : [ $cookies ];
 
         my $headers = [];
@@ -1163,12 +1447,42 @@ use strict;
         # FIXME: make line endings work on windoze
         return join("\r\n", @$headers) . "\r\n";
     }
-        
+    *get_set_cookie_string = \&getSetCookieString;
+
+=pod
+
+=head2 setCookie(\%params), set_cookie(\%params);
+
+ Sets the cookie generated by getCookieString.  That is, in a
+ mod_perl environment, it adds an outgoing header to set the
+ cookie.  In a CGI environment, it prints the value of
+ getSetCookieString to STDOUT (including the end-of-line
+ sequence).
+
+=cut
+    sub setCookie {
+        my $self = shift;
+        my $params = shift;
+
+        my $str = $self->_createCookieStrFromHash($params);
+        my $r = $self->_getApacheRequest;
+
+        if ($r) {
+            $r->err_headers_out()->add('Set-Cookie' => $str);
+        }
+        else {
+            print STDOUT "Set-Cookie: $str\r\n";
+        }
+    }
+    *set_cookie = \&setCookie;
+    
     sub _createCookieStrFromHash {
         my ($self, $hash) = @_;
         my $pairs = [];
 
-        my $map_list = [ 'name', [ 'value', 'values' ], 'path', 'expires', 'domain', 'secure' ];
+        my $map_list = [ 'name', [ 'value', 'values', 'val' ],
+                         'path', 'expires', 'domain', 'secure',
+                       ];
         my $params = $self->_parse_sub_params($map_list, [ $hash ]);
 
         my $value = $$params{value};
@@ -1598,7 +1912,7 @@ __END__
 
 =head1 COPYRIGHT
 
- Copyright (c) 2003-2004 Don Owens
+ Copyright (c) 2003-2005 Don Owens
 
  All rights reserved. This program is free software; you can
  redistribute it and/or modify it under the same terms as Perl
@@ -1606,6 +1920,6 @@ __END__
 
 =head1 VERSION
 
- 0.07
+ 0.08
 
 =cut
