@@ -2,9 +2,9 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.58 2005/12/15 04:11:16 don Exp $
+# $Id: Utils.pm,v 1.68 2006/06/28 02:33:18 don Exp $
 
-# Copyright (c) 2003-2005 Don Owens
+# Copyright (c) 2003-2006 Don Owens
 
 # All rights reserved. This program is free software; you can
 # redistribute it and/or modify it under the same terms as Perl
@@ -14,8 +14,8 @@
 
 =head1 NAME
 
- CGI::Utils - Utilities for retrieving information through the
- Common Gateway Interface
+CGI::Utils - Utilities for retrieving information through the
+Common Gateway Interface
 
 =head1 SYNOPSIS
 
@@ -36,41 +36,41 @@
 
 =head1 DESCRIPTION
 
- This module can be used almost as a drop-in replacement for
- CGI.pm for those of you who do not use the HTML generating
- features of CGI.pm
+This module can be used almost as a drop-in replacement for
+CGI.pm for those of you who do not use the HTML generating
+features of CGI.pm
 
- This module provides an object-oriented interface for retrieving
- information provided by the Common Gateway Interface, as well as
- url-encoding and decoding values, and parsing CGI
- parameters. For example, CGI has a utility for escaping HTML,
- but no public interface for url-encoding a value or for taking a
- hash of values and returning a url-encoded query string suitable
- for passing to a CGI script. This module does that, as well as
- provide methods for creating a self-referencing url, converting
- relative urls to absolute, adding CGI parameters to the end of a
- url, etc.  Please see the METHODS section below for more
- detailed descriptions of functionality provided by this module.
+This module provides an object-oriented interface for retrieving
+information provided by the Common Gateway Interface, as well as
+url-encoding and decoding values, and parsing CGI
+parameters. For example, CGI has a utility for escaping HTML,
+but no public interface for url-encoding a value or for taking a
+hash of values and returning a url-encoded query string suitable
+for passing to a CGI script. This module does that, as well as
+provide methods for creating a self-referencing url, converting
+relative urls to absolute, adding CGI parameters to the end of a
+url, etc.  Please see the METHODS section below for more
+detailed descriptions of functionality provided by this module.
 
- File uploads via the multipart/form-data encoding are supported.
- The parameter for the field name corresponding to the file is a
- file handle that, when evaluated in string context, returns the
- name of the file uploaded.  To get the contents of the file,
- just read from the file handle.
+File uploads via the multipart/form-data encoding are supported.
+The parameter for the field name corresponding to the file is a
+file handle that, when evaluated in string context, returns the
+name of the file uploaded.  To get the contents of the file,
+just read from the file handle.
 
- mod_perl is supported if a value for apache_request is passed to
- new(), or if the apache request object is available via
- Apache->request, or if running under HTML::Mason.  See the
- documentation for the new() method for details.
+mod_perl is supported if a value for apache_request is passed to
+new(), or if the apache request object is available via
+Apache->request, or if running under HTML::Mason.  See the
+documentation for the new() method for details.
 
- If not running in a mod_perl or CGI environment, @ARGV will be
- searched for key/value pairs in the format
+If not running in a mod_perl or CGI environment, @ARGV will be
+searched for key/value pairs in the format
 
-     key1=val1 key2=val2
+ key1=val1 key2=val2
 
- If all command-line arguments are in this format, the key/value
- pairs will be available as if they were passed via a CGI or
- mod_perl interface.
+If all command-line arguments are in this format, the key/value
+pairs will be available as if they were passed via a CGI or
+mod_perl interface.
 
 =head1 METHODS
 
@@ -85,13 +85,33 @@ use strict;
 
 {   package CGI::Utils;
 
-    use vars qw($VERSION @ISA @EXPORT_OK @EXPORT %EXPORT_TAGS);
+    use vars qw($VERSION @ISA @EXPORT_OK @EXPORT %EXPORT_TAGS $AUTOLOAD);
 
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.08'; # update below in POD as well
+        $VERSION = '0.09'; # update below in POD as well
+
+        local($SIG{__DIE__});
+        if (defined($ENV{MOD_PERL}) and $ENV{MOD_PERL} ne '') {
+            eval q{
+                use mod_perl;
+                $CGI::Utils::MP2 = $mod_perl::VERSION >= 1.99;
+                if (defined($CGI::Utils::MP2)) {
+                    if ($CGI::Utils::MP2) {
+                        require Apache2::Const;
+                        require Apache2::RequestUtil;
+                    }
+                    else {
+                        require Apache::Constants;
+                    }
+                    $CGI::Utils::Loaded_Apache_Constants = 1;
+                }
+            };
+        }
     }
+
+    use constant MP2 => $CGI::Utils::MP2;
     
     require Exporter;
     @ISA = 'Exporter';
@@ -112,12 +132,13 @@ use strict;
 
 =head2 new(\%params)
 
- Returns a new CGI::Utils object.  Parameters are optional.
- CGI::Utils supports mod_perl if the Apache request object is
- passed as $params{apache_request}, or if it is available via
- Apache->request, or if running under HTML::Mason.
+Returns a new CGI::Utils object.  Parameters are optional.
+CGI::Utils supports mod_perl if the Apache request object is
+passed as $params{apache_request}, or if it is available via
+Apache->request (or Apache2::RequestUtil->request), or if running
+under HTML::Mason.
 
- You may also pass max_post_size in %params.
+You may also pass max_post_size in %params.
 
 =cut
     sub new {
@@ -144,7 +165,12 @@ use strict;
                 # we're running under mason
                 return $self->_getApacheRequestFromMason;
             } elsif (defined($mod_perl::VERSION)) {
-                $r = Apache->request;
+                if (MP2) {
+                    $r = Apache2::RequestUtil->request;
+                }
+                else {
+                    $r = Apache->request;
+                }
                 return $r if $r;
             }
         }
@@ -243,7 +269,7 @@ use strict;
         if ($self->_isModPerl) {
             my $r = $self->_getApacheRequest;
             if ($r) {
-                return $r->header_in($header);
+                return $r->headers_in()->{$header};
             }
         } elsif ($self->_isCgi) {
             $header =~ s/-/_/g;
@@ -256,8 +282,10 @@ use strict;
 
 =head2 urlEncode($str)
 
- Returns the fully URL-encoded version of the given string.  It
- does not convert space characters to '+' characters.
+Returns the fully URL-encoded version of the given string.  It
+does not convert space characters to '+' characters.
+
+Aliases: url_encode()
 
 =cut
     sub urlEncode {
@@ -265,14 +293,17 @@ use strict;
         $str =~ s{([^A-Za-z0-9_])}{sprintf("%%%02x", ord($1))}eg;
         return $str;
     }
+    *url_encode = \&urlEncode;
 
 =pod
 
 =head2 urlUnicodeEncode($str)
 
- Returns the fully URL-encoded version of the given string as
- unicode characters.  It does not convert space characters to '+'
- characters.
+Returns the fully URL-encoded version of the given string as
+unicode characters.  It does not convert space characters to '+'
+characters.
+
+Aliases: url_unicode_encode()
 
 =cut
     sub urlUnicodeEncode {
@@ -280,12 +311,15 @@ use strict;
         $str =~ s{([^A-Za-z0-9_])}{sprintf("%%u%04x", ord($1))}eg;
         return $str;
     }
+    *url_unicode_encode = \&urlUnicodeEncode;
 
 =pod
 
 =head2 urlDecode($url_encoded_str)
 
- Returns the decoded version of the given URL-encoded string.
+Returns the decoded version of the given URL-encoded string.
+
+Aliases: url_decode()
 
 =cut
     sub urlDecode {
@@ -294,13 +328,16 @@ use strict;
         $str =~ s|%([A-Fa-f0-9]{2})|chr(hex($1))|eg;
         return $str;
     }
+    *url_decode = \&urlDecode;
 
 =pod
 
 =head2 urlUnicodeDecode($url_encoded_str)
 
- Returns the decoded version of the given URL-encoded string,
- with unicode support.
+Returns the decoded version of the given URL-encoded string,
+with unicode support.
+
+Aliases: url_unicode_decode()
 
 =cut
     sub urlUnicodeDecode {
@@ -310,16 +347,19 @@ use strict;
         $str =~ s|%u([A-Fa-f0-9]{2,4})|chr(hex($1))|eg;
         return $str;
     }
+    *url_unicode_decode = \&urlUnicodeDecode;
 
 =pod
 
 =head2 urlEncodeVars($var_hash, $sep)
 
- Takes a hash of name/value pairs and returns a fully URL-encoded
- query string suitable for passing in a URL.  By default, uses
- the newer separator, a semicolon, as recommended by the W3C.  If
- you pass in a second argument, it is used as the separator
- between key/value pairs.
+Takes a hash of name/value pairs and returns a fully URL-encoded
+query string suitable for passing in a URL.  By default, uses
+the newer separator, a semicolon, as recommended by the W3C.  If
+you pass in a second argument, it is used as the separator
+between key/value pairs.
+
+Aliases: url_encode_vars()
 
 =cut
     sub urlEncodeVars {
@@ -338,17 +378,20 @@ use strict;
 
         return join($sep, @pairs);
     }
+    *url_encode_vars = \&urlEncodeVars;
 
 =pod
 
 =head2 urlDecodeVars($query_string)
 
- Takes a URL-encoded query string, decodes it, and returns a
- reference to a hash of name/value pairs.  For multivalued
- fields, the value is an array of values.  If called in array
- context, it returns a reference to a hash of name/value pairs,
- and a reference to an array of field names in the order they
- appear in the query string.
+Takes a URL-encoded query string, decodes it, and returns a
+reference to a hash of name/value pairs.  For multivalued
+fields, the value is an array of values.  If called in array
+context, it returns a reference to a hash of name/value pairs,
+and a reference to an array of field names in the order they
+appear in the query string.
+
+Aliases: url_decode_vars()
 
 =cut
     sub urlDecodeVars {
@@ -374,12 +417,16 @@ use strict;
         
         return wantarray ? ($var_hash, $var_order) : $var_hash;
     }
+    *url_decode_vars = \&urlDecodeVars;
 
 =pod
 
 =head2 escapeHtml($text)
 
- Escapes the given text so that it is not interpreted as HTML.
+Escapes the given text so that it is not interpreted as HTML.  &,
+<, >, and " characters are escaped.
+
+Aliases: escape_html()
 
 =cut
     # added for v0.05
@@ -395,13 +442,16 @@ use strict;
 
         return $text;
     }
+    *escape_html = \&escapeHtml;
 
 =pod
 
 =head2 escapeHtmlFormValue($text)
 
- Escapes the given text so that it is valid to put in a form
- field.
+Escapes the given text so that it is valid to put in a form
+field.
+
+Aliases: escape_html_form_value()
 
 =cut
     # added for v0.05
@@ -413,14 +463,17 @@ use strict;
         
         return $str;
     }
+    *escape_html_form_value = \&escapeHtmlFormValue;
 
 
 =pod
 
 =head2 getSelfRefHostUrl()
 
- Returns a url referencing top level directory in the current
- domain, e.g., http://mydomain.com
+Returns a url referencing top level directory in the current
+domain, e.g., http://mydomain.com
+
+Aliases: get_self_ref_host_url()
 
 =cut
     sub getSelfRefHostUrl {
@@ -439,25 +492,31 @@ use strict;
         
         return $host_url;
     }
+    *get_self_ref_host_url = \&getSelfRefHostUrl;
 
 =pod
 
 =head2 getSelfRefUrl()
 
- Returns a url referencing the current script (without any query
- string).
+Returns a url referencing the current script (without any query
+string).
+
+Aliases: get_self_ref_url
 
 =cut
     sub getSelfRefUrl {
         my ($self) = @_;
         return $self->getSelfRefHostUrl . $self->getSelfRefUri;
     }
+    *get_self_ref_url = \&getSelfRefUrl;
 
 =pod
 
 =head2 getSelfRefUri()
 
- Returns the current URI.
+Returns the current URI.
+
+Aliases: get_self_ref_uri()
 
 =cut
     sub getSelfRefUri {
@@ -473,13 +532,16 @@ use strict;
         $uri =~ s/^(.*?)\?.*$/$1/;
         return $uri;
     }
+    *get_self_ref_uri = \&getSelfRefUri;
 
 =pod
 
 =head2 getSelfRefUrlWithQuery()
 
- Returns a url referencing the current script along with any
- query string parameters passed via a GET method.
+Returns a url referencing the current script along with any
+query string parameters passed via a GET method.
+
+Aliases: get_self_ref_url_with_query()
 
 =cut
     sub getSelfRefUrlWithQuery {
@@ -499,13 +561,16 @@ use strict;
         }
         return $url;
     }
+    *get_self_ref_url_with_query = \&getSelfRefUrlWithQuery;
 
 =pod
 
 =head2 getSelfRefUrlWithParams($params)
 
- Returns a url reference the current script along with the given
- hash of parameters added onto the end of url as a query string.
+Returns a url reference the current script along with the given
+hash of parameters added onto the end of url as a query string.
+
+Aliases: get_self_ref_url_with_params()
 
 =cut
     # added for 0.06
@@ -514,12 +579,15 @@ use strict;
 
         return $self->addParamsToUrl($self->getSelfRefUrl, $args);
     }
+    *get_self_ref_url_with_params = \&getSelfRefUrlWithParams;
 
 =pod
 
 =head2 getSelfRefUrlDir()
 
- Returns a url referencing the directory part of the current url.
+Returns a url referencing the directory part of the current url.
+
+Aliases: get_self_ref_url_dir()
 
 =cut
     sub getSelfRefUrlDir {
@@ -529,14 +597,18 @@ use strict;
         $url =~ s{/[^/]+$}{};
         return $url;
     }
+    *get_self_ref_url_dir = \&getSelfRefUrlDir;
 
 =pod
 
 =head2 convertRelativeUrlWithParams($relative_url, $params)
 
- Converts a relative URL to an absolute one based on the current
- URL, then adds the parameters in the given hash $params as a
- query string.
+Converts a relative URL to an absolute one based on the current
+URL, then adds the parameters in the given hash $params as a
+query string.
+
+Aliases: convertRelativeUrlWithArgs(), convert_relative_url_with_params(),
+convert_relative_url_with_args()
 
 =cut
     # Takes $rel_url as a url relative to the current directory,
@@ -562,17 +634,21 @@ use strict;
         return $self->addParamsToUrl($host_url . $uri, $args);
     }
     *convertRelativeUrlWithArgs = \&convertRelativeUrlWithParams;
+    *convert_relative_url_with_params = \&convertRelativeUrlWithParams;
+    *convert_relative_url_with_args = \&convertRelativeUrlWithParams;
 
 =pod
 
 =head2 addParamsToUrl($url, $param_hash)
 
- Takes a url and reference to a hash of parameters to be added
- onto the url as a query string and returns a url with those
- parameters.  It checks whether or not the url already contains a
- query string and modifies it accordingly.  If you want to add a
- multivalued parameter, pass it as a reference to an array
- containing all the values.
+Takes a url and reference to a hash of parameters to be added
+onto the url as a query string and returns a url with those
+parameters.  It checks whether or not the url already contains a
+query string and modifies it accordingly.  If you want to add a
+multivalued parameter, pass it as a reference to an array
+containing all the values.
+
+Aliases: add_params_to_url()
 
 =cut
     sub addParamsToUrl {
@@ -593,13 +669,14 @@ use strict;
         $url .= $self->urlEncodeVars($param_hash, $sep);
         return $url;
     }
+    *add_params_to_url = \&addParamsToUrl;
 
     sub _getRawCookie {
         my $self = shift;
 
         if ($self->_isModPerl) {
             my $r = $self->_getApacheRequest;
-            return $r ? $r->header_in('Cookie') : ($ENV{HTTP_COOKIE} || $ENV{COOKIE} || '');
+            return $r ? $r->headers_in()->{Cookie} : ($ENV{HTTP_COOKIE} || $ENV{COOKIE} || '');
         }
         else {
             return $ENV{HTTP_COOKIE} || $ENV{COOKIE} || '';
@@ -610,8 +687,10 @@ use strict;
 
 =head2 getParsedCookies()
 
- Parses the cookies passed to the server.  Returns a hash of
- key/value pairs representing the cookie names and values.
+Parses the cookies passed to the server.  Returns a hash of
+key/value pairs representing the cookie names and values.
+
+Aliases: get_parsed_cookies
 
 =cut
     sub getParsedCookies {
@@ -620,6 +699,7 @@ use strict;
             split(/;\s*/, $self->_getRawCookie);
         return \%cookies;
     }
+    *get_parsed_cookies = \&getParsedCookies;
 
     # added for v0.06
     # for compatibility with CGI.pm
@@ -771,7 +851,7 @@ use strict;
             if (lc($method) eq 'post') {
                 unless (defined $CGI::Utils::Has_Apache_Request) {
                     local($SIG{__DIE__});
-                    if ($mod_perl::VERSION >= 2) {
+                    if (MP2) {
                         eval 'require Apache2::Request';
                         # my $apr = Apache2::RequestUtil->request($r)
                     } else {
@@ -831,10 +911,10 @@ use strict;
 
 =head2 param($name)
 
- Returns the CGI parameter with name $name.  If called in array
- context, it returns an array.  In scalar context, it returns an
- array reference for multivalued fields, and a scalar for
- single-valued fields.
+Returns the CGI parameter with name $name.  If called in array
+context, it returns an array.  In scalar context, it returns an
+array reference for multivalued fields, and a scalar for
+single-valued fields.
 
 =cut
     sub param {
@@ -860,14 +940,14 @@ use strict;
 
 =head2 getVars($delimiter)
 
- Also Vars() to be compatible with CGI.pm.  Returns a reference
- to a tied hash containing key/value pairs corresponding to each
- CGI parameter.  For multivalued fields, the value is an array
- ref, with each element being one of the values.  If you pass in
- a value for the delimiter, multivalued fields will be returned
- as a string of values delimited by the delimiter you passed in.
+Also Vars() to be compatible with CGI.pm.  Returns a reference
+to a tied hash containing key/value pairs corresponding to each
+CGI parameter.  For multivalued fields, the value is an array
+ref, with each element being one of the values.  If you pass in
+a value for the delimiter, multivalued fields will be returned
+as a string of values delimited by the delimiter you passed in.
 
- Aliases: vars(), Vars(), get_args(), args()
+Aliases: vars(), Vars(), get_args(), args()
 
 =cut
     sub getVars {
@@ -917,8 +997,8 @@ use strict;
 
 =head2 getPathInfo(), path_info(), get_path_info();
 
- Returns additional virtual path information from the URL (if
- any) after your script.
+Returns additional virtual path information from the URL (if
+any) after your script.
 
 =cut
     # added for 0.06
@@ -939,8 +1019,8 @@ use strict;
 
 =head2 getRemoteAddr(), remote_addr(), get_remote_addr()
 
- Returns the dotted decimal representation of the remote client's
- IP address.
+Returns the dotted decimal representation of the remote client's
+IP address.
 
 =cut
     # added for v0.07
@@ -955,8 +1035,8 @@ use strict;
 
 =head2 getRemoteHost(), remote_host(), get_remote_host()
 
- Returns the name of the remote host, or its IP address if the
- name is unavailable.
+Returns the name of the remote host, or its IP address if the
+name is unavailable.
 
 =cut
     # added for v0.07
@@ -977,8 +1057,8 @@ use strict;
 
 =head2 getHost(), host(), virtual_host(), get_host()
 
- Returns the name of the host in the URL being accessed.  This is
- sent as the Host header by the web browser.
+Returns the name of the host in the URL being accessed.  This is
+sent as the Host header by the web browser.
 
 =cut
     # added for v0.07
@@ -994,7 +1074,7 @@ use strict;
 
 =head2 getReferer(), referer(), get_referer(), getReferrer(), referrer(), get_referrer()
 
- Returns the referring URL.
+Returns the referring URL.
 
 =cut
     # added for v0.07
@@ -1013,7 +1093,7 @@ use strict;
 
 =head2 getProtocol(), protocol(), get_protocol()
 
- Returns the protocol, i.e., http or https.
+Returns the protocol, i.e., http or https.
 
 =cut
     # added for v0.07
@@ -1033,7 +1113,7 @@ use strict;
 
 =head2 getRequestMethod(), request_method(), get_request_method()
 
- Returns the request method, i.e., GET, POST, HEAD, or PUT.
+Returns the request method, i.e., GET, POST, HEAD, or PUT.
 
 =cut
     # added for 0.06
@@ -1067,7 +1147,7 @@ use strict;
 
 =head2 getPathTranslated(), path_translated(), get_path_translated()
 
- Returns the physical path information if provided in the CGI environment.
+Returns the physical path information if provided in the CGI environment.
 
 =cut
     # added for 0.06
@@ -1082,7 +1162,7 @@ use strict;
 
 =head2 getQueryString(), query_string(), get_query_string()
 
- Returns a query string created from the current parameters.
+Returns a query string created from the current parameters.
 
 =cut
     # create a query string from current CGI params
@@ -1099,32 +1179,32 @@ use strict;
 
 =head2 getHeader(@args)
 
- Generates HTTP headers.  Standard arguments are content_type,
- cookie, target, expires, and charset.  These should be passed as
- name/value pairs.  If only one argument is passed, it is assumed
- to be the 'content_type' argument.  If no values are passed, the
- content type is assumed to be 'text/html'.  The charset defaults
- to ISO-8859-1.  A hash reference can also be passed.  E.g.,
+Generates HTTP headers.  Standard arguments are content_type,
+cookie, target, expires, and charset.  These should be passed as
+name/value pairs.  If only one argument is passed, it is assumed
+to be the 'content_type' argument.  If no values are passed, the
+content type is assumed to be 'text/html'.  The charset defaults
+to ISO-8859-1.  A hash reference can also be passed.  E.g.,
 
-     print $cgi_obj->getHeader({ content_type => 'text/html', expires => '+3d' });
+ print $cgi_obj->getHeader({ content_type => 'text/html', expires => '+3d' });
 
- The names 'content-type', and 'type' are aliases for
- 'content_type'.  The arguments may also be passed CGI.pm style
- with a '-' in front, e.g.
+The names 'content-type', and 'type' are aliases for
+'content_type'.  The arguments may also be passed CGI.pm style
+with a '-' in front, e.g.
 
-     print $cgi_obj->getHeader( -content_type => 'text/html', -expires => '+3d' );
+ print $cgi_obj->getHeader( -content_type => 'text/html', -expires => '+3d' );
 
- Cookies may be passed with the 'cookies' key either as a string,
- a hash ref, or as a CGI::Cookies object, e.g.
+Cookies may be passed with the 'cookies' key either as a string,
+a hash ref, or as a CGI::Cookies object, e.g.
 
-    my $cookie = { name => 'my_cookie', value => 'cookie_val' };
-    print $cgi_obj->getHeader(cookies => $cookie);
+ my $cookie = { name => 'my_cookie', value => 'cookie_val' };
+ print $cgi_obj->getHeader(cookies => $cookie);
 
- You may also pass an array of cookies, e.g.,
+You may also pass an array of cookies, e.g.,
 
-    print $cgi_obj->getHeader(cookies => [ $cookie1, $cookie2 ]);
+ print $cgi_obj->getHeader(cookies => [ $cookie1, $cookie2 ]);
 
- Aliases: header(), get_header
+Aliases: header(), get_header
 
 =cut
     sub getHeader {
@@ -1218,11 +1298,11 @@ use strict;
 
 =head2 sendHeader(@args)
 
- Like getHeader() above, except sends it.  Under mod_perl, this
- sends the header(s) via the Apache request object.  In a CGI
- environment, this prints the header(s) to STDOUT.
+Like getHeader() above, except sends it.  Under mod_perl, this
+sends the header(s) via the Apache request object.  In a CGI
+environment, this prints the header(s) to STDOUT.
 
- Aliases: send_header()
+Aliases: send_header()
 
 =cut
     sub sendHeader {
@@ -1292,29 +1372,21 @@ use strict;
     sub load_apache_constants {
         unless (defined $CGI::Utils::Loaded_Apache_Constants) {
             local($SIG{__DIE__});
-            eval 'use Apache::Constants ()';
-            $CGI::Utils::Loaded_Apache_Constants = 1;
+            eval q{
+                use mod_perl;
+                use constant MP2 => $mod_perl::VERSION >= 1.99;
+                if (defined(MP2)) {
+                    if (MP2) {
+                        require Apache2;
+                        require Apache::Const;
+                    }
+                    else {
+                        require Apache::Constants;
+                    }
+                    $CGI::Utils::Loaded_Apache_Constants = 1;
+                }
+                };
         }
-    }
-    
-    sub apache_ok {
-        shift()->load_apache_constants;
-        return Apache::Constants::OK();
-    }
-
-    sub apache_redirect {
-        shift()->load_apache_constants;
-        return Apache::Constants::REDIRECT();
-    }
-
-    sub apache_not_found {
-        shift()->load_apache_constants;
-        return Apache::Constants::NOT_FOUND();
-    }
-
-    sub apache_declined {
-        shift()->load_apache_constants;
-        return Apache::Constants::DECLINED();
     }
     
 
@@ -1322,15 +1394,15 @@ use strict;
 
 =head2 getRedirect($url)
 
- Returns the header required to do a redirect.  This method also
- accepts named arguments, e.g.,
+Returns the header required to do a redirect.  This method also
+accepts named arguments, e.g.,
 
-     print $cgi_obj->getRedirect(url => $url, status => 302,
-                                 cookie => \%cookie_params);
+ print $cgi_obj->getRedirect(url => $url, status => 302,
+                             cookie => \%cookie_params);
 
- You may also pass a cookies argument as in getHeader().
+You may also pass a cookies argument as in getHeader().
 
- Aliases: redirect()
+Aliases: redirect()
 
 =cut
     sub getRedirect {
@@ -1350,17 +1422,17 @@ use strict;
 
 =head2 sendRedirect($url)
 
- Like getRedirect(), but in a CGI environment the output is sent
- to STDOUT, and in a mod_perl environment, the appropriate
- headers are set.  The return value is 1 for a CGI environment
- when successful, and Apache::Constants::REDIRECT in a mod_perl
- environment, so you can do something like
+Like getRedirect(), but in a CGI environment the output is sent
+to STDOUT, and in a mod_perl environment, the appropriate
+headers are set.  The return value is 1 for a CGI environment
+when successful, and Apache::Constants::REDIRECT in a mod_perl
+environment, so you can do something like
 
  return $utils->sendRedirect($url)
 
- in a mod_perl handler.
+n a mod_perl handler.
 
- Aliases: send_redirect()
+Aliases: send_redirect()
 
 =cut
     sub send_redirect {
@@ -1380,8 +1452,8 @@ use strict;
 
 =head2 getLocalRedirect(), local_redirect(), get_local_redirect()
 
- Like getRedirect(), except that the redirect URL is converted
- from relative to absolute, including the host.
+Like getRedirect(), except that the redirect URL is converted
+from relative to absolute, including the host.
 
 =cut
     # Added for v0.07
@@ -1405,7 +1477,7 @@ use strict;
 
 =head2 getCookieString(\%hash), get_cookie_string(\%hash);
 
- Returns a string to pass as the value of a 'Set-Cookie' header.
+Returns a string to pass as the value of a 'Set-Cookie' header.
 
 =cut
     sub getCookieString {
@@ -1418,8 +1490,8 @@ use strict;
 
 =head2 getSetCookieString(\%params), getSetCookieString([ \%params1, \%params2 ])
 
- Returns a string to pass as the 'Set-Cookie' header(s), including
- the line ending(s).  Also accepts a simple hash with key/value pairs.
+Returns a string to pass as the 'Set-Cookie' header(s), including
+the line ending(s).  Also accepts a simple hash with key/value pairs.
 
 =cut
     sub getSetCookieString {
@@ -1453,11 +1525,11 @@ use strict;
 
 =head2 setCookie(\%params), set_cookie(\%params);
 
- Sets the cookie generated by getCookieString.  That is, in a
- mod_perl environment, it adds an outgoing header to set the
- cookie.  In a CGI environment, it prints the value of
- getSetCookieString to STDOUT (including the end-of-line
- sequence).
+Sets the cookie generated by getCookieString.  That is, in a
+mod_perl environment, it adds an outgoing header to set the
+cookie.  In a CGI environment, it prints the value of
+getSetCookieString to STDOUT (including the end-of-line
+sequence).
 
 =cut
     sub setCookie {
@@ -1818,8 +1890,8 @@ use strict;
 
 =head2 uploadInfo($file_name)
 
- Returns a reference to a hash containing the header information
- sent along with a file upload.
+Returns a reference to a hash containing the header information
+sent along with a file upload.
 
 =cut
     # provided for compatibility with CGI.pm
@@ -1882,44 +1954,80 @@ use strict;
         return 0;
     }
 
+=pod
+
+=head1 Apache constants under mod_perl
+
+Shortcut methods are provided for returning Apache constants
+under mod_perl.  The methods figure out if they are running under
+mod_perl 1 or 2 and make the appropriate call to get the right
+constant back, e.g., Apache::Constants::OK() versus Apache::OK().
+The methods are created on the fly using AUTOLOAD.  The method
+names are in the format apache_$name where $name is the
+lowercased constant name, e.g., $utils->apache_ok,
+$utils->apache_forbidden.  See
+L<http://perl.apache.org/docs/1.0/api/Apache/Constants.html> for
+a list of constants available.
+
+=cut
+    
+    sub AUTOLOAD {
+        my $self = shift;
+        (my $method = $AUTOLOAD) =~ s{\A.*\:\:([^:]+)\Z}{$1};
+
+        if ($method eq 'DESTROY') {
+            return;
+        }
+
+        if ($method =~ /\Aapache_(.+)/) {
+            my $const = uc($1);
+            eval "sub $method "
+                . "{ return MP2 ? Apache\:\:$const() : Apache\:\:Constants\:\:$const(); }";
+            unless ($@) {
+                return $self->$method;
+            }
+
+            return;
+        }
+
+        die "no such method $method in package " . __PACKAGE__;
+    }
 }
 
 1;
-
-__END__
 
 =pod
 
 =head1 EXPORTS
 
- You can export methods into your namespace in the usual way.
- All of the util methods are available for export, e.g.,
- getSelfRefUrl(), addParamsToUrl(), etc.  Beware, however, that
- these methods expect to be called as methods.  You can also use
- the tag :all_utils to import all of the util methods into your
- namespace.  This allows for incorporating these methods into
- your class without having to inherit from CGI::Utils.
+You can export methods into your namespace in the usual way.
+All of the util methods are available for export, e.g.,
+getSelfRefUrl(), addParamsToUrl(), etc.  Beware, however, that
+these methods expect to be called as methods.  You can also use
+the tag :all_utils to import all of the util methods into your
+namespace.  This allows for incorporating these methods into
+your class without having to inherit from CGI::Utils.
 
 =head1 ACKNOWLEDGEMENTS
 
- Other people who have contributed ideas and/or code for this module:
+Other people who have contributed ideas and/or code for this module:
 
     Kevin Wilson
 
 =head1 AUTHOR
 
- Don Owens <don@owensnet.com>
+Don Owens <don@regexguy.com>
 
 =head1 COPYRIGHT
 
- Copyright (c) 2003-2005 Don Owens
+Copyright (c) 2003-2006 Don Owens
 
- All rights reserved. This program is free software; you can
- redistribute it and/or modify it under the same terms as Perl
- itself.
+All rights reserved. This program is free software; you can
+redistribute it and/or modify it under the same terms as Perl
+itself.
 
 =head1 VERSION
 
- 0.08
+0.09
 
 =cut

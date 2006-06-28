@@ -1,3 +1,9 @@
+Version 0.09
+	* apache_* methods
+	* support for mod_perl 2 in addition to mod_perl 1
+	* added underscore versions of more methods
+	* fixed some formatting issues with the POD documentation
+
 Version 0.08
 	* setCookie()
 	* More underscore versions of methods
