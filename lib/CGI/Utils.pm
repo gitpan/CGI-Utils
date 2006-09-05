@@ -2,7 +2,7 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.68 2006/06/28 02:33:18 don Exp $
+# $Id: Utils.pm,v 1.69 2006/09/05 08:09:36 don Exp $
 
 # Copyright (c) 2003-2006 Don Owens
 
@@ -90,7 +90,7 @@ use strict;
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.09'; # update below in POD as well
+        $VERSION = '0.10'; # update below in POD as well
 
         local($SIG{__DIE__});
         if (defined($ENV{MOD_PERL}) and $ENV{MOD_PERL} ne '') {
@@ -366,11 +366,11 @@ Aliases: url_encode_vars()
         my ($self, $var_hash, $sep) = @_;
         $sep = ';' unless defined $sep;
         my @pairs;
-        foreach my $key (keys %$var_hash) {
+        foreach my $key (sort keys %$var_hash) {
             my $val = $$var_hash{$key};
             my $ref = ref($val);
             if ($ref eq 'ARRAY' or $ref =~ /=ARRAY/) {
-                push @pairs, map { $self->urlEncode($key) . "=" . $self->urlEncode($_) } @$val;
+                push @pairs, map { $self->urlEncode($key) . "=" . $self->urlEncode($_) } sort @$val;
             } else {
                 push @pairs, $self->urlEncode($key) . "=" . $self->urlEncode($val);
             }
@@ -565,19 +565,24 @@ Aliases: get_self_ref_url_with_query()
 
 =pod
 
-=head2 getSelfRefUrlWithParams($params)
+=head2 getSelfRefUrlWithParams($params, $sep)
 
 Returns a url reference the current script along with the given
 hash of parameters added onto the end of url as a query string.
+
+If the optional $sep parameter is passed, it is used as the
+parameter separator instead of ';', unless the URL already
+contains '&' chars, in which case it will use '&' for the
+separator.
 
 Aliases: get_self_ref_url_with_params()
 
 =cut
     # added for 0.06
     sub getSelfRefUrlWithParams {
-        my ($self, $args) = @_;
+        my ($self, $args, $sep) = @_;
 
-        return $self->addParamsToUrl($self->getSelfRefUrl, $args);
+        return $self->addParamsToUrl($self->getSelfRefUrl, $args, $sep);
     }
     *get_self_ref_url_with_params = \&getSelfRefUrlWithParams;
 
@@ -601,11 +606,16 @@ Aliases: get_self_ref_url_dir()
 
 =pod
 
-=head2 convertRelativeUrlWithParams($relative_url, $params)
+=head2 convertRelativeUrlWithParams($relative_url, $params, $sep)
 
 Converts a relative URL to an absolute one based on the current
 URL, then adds the parameters in the given hash $params as a
 query string.
+
+If the optional $sep parameter is passed, it is used as the
+parameter separator instead of ';', unless the URL already
+contains '&' chars, in which case it will use '&' for the
+separator.
 
 Aliases: convertRelativeUrlWithArgs(), convert_relative_url_with_params(),
 convert_relative_url_with_args()
@@ -615,7 +625,7 @@ convert_relative_url_with_args()
     # e.g., a script name, and adds the given cgi params to it.
     # added for v0.05
     sub convertRelativeUrlWithParams {
-        my ($self, $rel_url, $args) = @_;
+        my ($self, $rel_url, $args, $sep) = @_;
         my $host_url = $self->getSelfRefHostUrl;
         my $uri = $self->getSelfRefUri;
         $uri =~ s{^(.+?)\?.*$}{$1};
@@ -631,7 +641,7 @@ convert_relative_url_with_args()
             $uri .= '/' . $rel_url;
         }
 
-        return $self->addParamsToUrl($host_url . $uri, $args);
+        return $self->addParamsToUrl($host_url . $uri, $args, $sep);
     }
     *convertRelativeUrlWithArgs = \&convertRelativeUrlWithParams;
     *convert_relative_url_with_params = \&convertRelativeUrlWithParams;
@@ -639,7 +649,7 @@ convert_relative_url_with_args()
 
 =pod
 
-=head2 addParamsToUrl($url, $param_hash)
+=head2 addParamsToUrl($url, $param_hash, $sep)
 
 Takes a url and reference to a hash of parameters to be added
 onto the url as a query string and returns a url with those
@@ -648,13 +658,18 @@ query string and modifies it accordingly.  If you want to add a
 multivalued parameter, pass it as a reference to an array
 containing all the values.
 
+If the optional $sep parameter is passed, it is used as the
+parameter separator instead of ';', unless the URL already
+contains '&' chars, in which case it will use '&' for the
+separator.
+
 Aliases: add_params_to_url()
 
 =cut
     sub addParamsToUrl {
-        my ($self, $url, $param_hash) = @_;
+        my ($self, $url, $param_hash, $sep) = @_;
         return $url unless ref($param_hash) eq 'HASH' and %$param_hash;
-        my $sep = ';';
+        $sep = ';' unless defined($sep) and $sep ne '';
         if ($url =~ /^([^?]+)\?(.*)$/) {
             my $query = $2;
             # if query uses & for separator, then keep it consistent
@@ -2028,6 +2043,6 @@ itself.
 
 =head1 VERSION
 
-0.09
+0.10
 
 =cut

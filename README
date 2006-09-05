@@ -135,9 +135,13 @@ METHODS
 
     Aliases: get_self_ref_url_with_query()
 
-  getSelfRefUrlWithParams($params)
+  getSelfRefUrlWithParams($params, $sep)
     Returns a url reference the current script along with the given hash of
     parameters added onto the end of url as a query string.
+
+    If the optional $sep parameter is passed, it is used as the parameter
+    separator instead of ';', unless the URL already contains '&' chars, in
+    which case it will use '&' for the separator.
 
     Aliases: get_self_ref_url_with_params()
 
@@ -146,19 +150,27 @@ METHODS
 
     Aliases: get_self_ref_url_dir()
 
-  convertRelativeUrlWithParams($relative_url, $params)
+  convertRelativeUrlWithParams($relative_url, $params, $sep)
     Converts a relative URL to an absolute one based on the current URL,
     then adds the parameters in the given hash $params as a query string.
+
+    If the optional $sep parameter is passed, it is used as the parameter
+    separator instead of ';', unless the URL already contains '&' chars, in
+    which case it will use '&' for the separator.
 
     Aliases: convertRelativeUrlWithArgs(),
     convert_relative_url_with_params(), convert_relative_url_with_args()
 
-  addParamsToUrl($url, $param_hash)
+  addParamsToUrl($url, $param_hash, $sep)
     Takes a url and reference to a hash of parameters to be added onto the
     url as a query string and returns a url with those parameters. It checks
     whether or not the url already contains a query string and modifies it
     accordingly. If you want to add a multivalued parameter, pass it as a
     reference to an array containing all the values.
+
+    If the optional $sep parameter is passed, it is used as the parameter
+    separator instead of ';', unless the URL already contains '&' chars, in
+    which case it will use '&' for the separator.
 
     Aliases: add_params_to_url()
 
@@ -333,5 +345,5 @@ COPYRIGHT
     it and/or modify it under the same terms as Perl itself.
 
 VERSION
-    0.09
+    0.10
 

@@ -1,3 +1,9 @@
+Version 0.10
+        * Added the $sep parameter to other methods that build a query string.
+          - addParamsToUrl
+          - convertRelativeUrlWithParams
+	  - getSelfRefUrlWithParams
+
 Version 0.09
 	* apache_* methods
 	* support for mod_perl 2 in addition to mod_perl 1

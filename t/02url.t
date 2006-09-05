@@ -3,7 +3,7 @@
 # Creation date: 2003-08-13 22:27:32
 # Authors: Don
 # Change log:
-# $Id: 02url.t,v 1.7 2004/10/26 06:16:03 don Exp $
+# $Id: 02url.t,v 1.8 2006/09/05 08:09:37 don Exp $
 
 use strict;
 use Carp;
@@ -13,7 +13,7 @@ use Carp;
     local($SIG{__DIE__}) = sub { &Carp::cluck(); exit 0 };
 
     use Test;
-    BEGIN { plan tests => 13 }
+    BEGIN { plan tests => 16 }
 
     use CGI::Utils;
 
@@ -35,6 +35,9 @@ use Carp;
 
     my $self_url_with_args = 'http://mydomain.com/cgi-bin/test.cgi?test=1';
     ok($utils->getSelfRefUrlWithParams({ test => 1 }) eq $self_url_with_args);
+
+    $self_url_with_args = 'http://mydomain.com/cgi-bin/test.cgi?test=1&ab=2';
+    ok($utils->get_self_ref_url_with_params({ test => 1, ab => 2 }, '&'));
 
     my $self_dir = 'http://mydomain.com/cgi-bin';
     ok($utils->getSelfRefUrlDir eq $self_dir);
@@ -110,6 +113,15 @@ use Carp;
        or $rv4 eq $want4_22 or $rv4 eq $want4_23 or $rv4 eq $want4_24
       );
 
+    my $url5 = 'http://example.com/my_page';
+    my $want5 = $url5 . '?field1=val1&field2=val2&field3=val3';
+    my $rv5 = $utils->add_params_to_url($url5, { field1 => 'val1',
+                                                 field2 => 'val2',
+                                                 field3 => 'val3',
+                                               },
+                                        '&');
+    ok($rv5 eq $want5);
+
     my $rel_url = 'doit.cgi';
     my $url = $utils->convertRelativeUrlWithParams($rel_url, { 's' => 1 });
     my $want = 'https://mydomain.com/cgi-bin/doit.cgi?s=1';
@@ -118,6 +130,11 @@ use Carp;
     $rel_url = '../doit.cgi';
     $url = $utils->convertRelativeUrlWithParams($rel_url, { 's' => 1 });
     $want = 'https://mydomain.com/doit.cgi?s=1';
+    ok($url eq $want);
+
+    $rel_url = '../doit.cgi';
+    $url = $utils->convert_relative_url_with_params($rel_url, { 's' => 1, 'a' => 2 }, '&');
+    $want = 'https://mydomain.com/doit.cgi?a=2&s=1';
     ok($url eq $want);
 
     my $uri = $utils->getSelfRefUri;
