@@ -2,7 +2,7 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.69 2006/09/05 08:09:36 don Exp $
+# $Id: Utils.pm,v 1.71 2008/10/31 02:19:34 don Exp $
 
 # Copyright (c) 2003-2006 Don Owens
 
@@ -90,7 +90,7 @@ use strict;
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.10'; # update below in POD as well
+        $VERSION = '0.11'; # update below in POD as well
 
         local($SIG{__DIE__});
         if (defined($ENV{MOD_PERL}) and $ENV{MOD_PERL} ne '') {
@@ -288,12 +288,30 @@ does not convert space characters to '+' characters.
 Aliases: url_encode()
 
 =cut
+BEGIN {
+    if ($] >= 5.006) {
+        eval q{
     sub urlEncode {
         my ($self, $str) = @_;
+                
+        use bytes;
         $str =~ s{([^A-Za-z0-9_])}{sprintf("%%%02x", ord($1))}eg;
         return $str;
     }
     *url_encode = \&urlEncode;
+};
+    } else {
+        eval q{
+    sub urlEncode {
+        my ($self, $str) = @_;
+
+        $str =~ s{([^A-Za-z0-9_])}{sprintf("%%%02x", ord($1))}eg;
+        return $str;
+    }
+    *url_encode = \&urlEncode;
+};
+    }
+}
 
 =pod
 
@@ -438,7 +456,7 @@ Aliases: escape_html()
         $text =~ s/</\&lt;/g;
         $text =~ s/>/\&gt;/g;
         $text =~ s/\"/\&quot;/g;
-        # $text =~ s/\$/\&dol;/g;
+        $text =~ s/\'/\&#39;/g;
 
         return $text;
     }
@@ -493,6 +511,7 @@ Aliases: get_self_ref_host_url()
         return $host_url;
     }
     *get_self_ref_host_url = \&getSelfRefHostUrl;
+    *get_self_host_url = \&getSelfRefHostUrl;
 
 =pod
 
@@ -2043,6 +2062,6 @@ itself.
 
 =head1 VERSION
 
-0.10
+0.11
 
 =cut

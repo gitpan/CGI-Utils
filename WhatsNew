@@ -1,3 +1,9 @@
+Version 0.11
+        * Aliased get_self_host_url to get_self_ref_host_url
+        * Add the single quote char (') to the list of characters that
+          get escaped when calling escapeHtml
+        * Fixed url_encode() to handle utf-8 properly
+
 Version 0.10
         * Added the $sep parameter to other methods that build a query string.
           - addParamsToUrl

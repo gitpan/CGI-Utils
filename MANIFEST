@@ -10,4 +10,5 @@ t/01encoding.t
 t/02url.t
 t/03cookies.t
 t/04import.t
+t/05utf8.t
 META.yml                                 Module meta-data (added by MakeMaker)
