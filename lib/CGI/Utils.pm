@@ -2,9 +2,9 @@
 # Creation date: 2003-08-13 20:23:50
 # Authors: Don
 # Change log:
-# $Id: Utils.pm,v 1.71 2008/10/31 02:19:34 don Exp $
+# $Id: Utils.pm,v 1.73 2008/11/13 03:56:46 don Exp $
 
-# Copyright (c) 2003-2006 Don Owens
+# Copyright (c) 2003-2008 Don Owens
 
 # All rights reserved. This program is free software; you can
 # redistribute it and/or modify it under the same terms as Perl
@@ -90,7 +90,7 @@ use strict;
     use CGI::Utils::UploadFile;
     
     BEGIN {
-        $VERSION = '0.11'; # update below in POD as well
+        $VERSION = '0.12'; # update below in POD as well
 
         local($SIG{__DIE__});
         if (defined($ENV{MOD_PERL}) and $ENV{MOD_PERL} ne '') {
@@ -388,7 +388,7 @@ Aliases: url_encode_vars()
             my $val = $$var_hash{$key};
             my $ref = ref($val);
             if ($ref eq 'ARRAY' or $ref =~ /=ARRAY/) {
-                push @pairs, map { $self->urlEncode($key) . "=" . $self->urlEncode($_) } sort @$val;
+                push @pairs, map { $self->urlEncode($key) . "=" . $self->urlEncode($_) } @$val;
             } else {
                 push @pairs, $self->urlEncode($key) . "=" . $self->urlEncode($val);
             }
@@ -2054,7 +2054,7 @@ Don Owens <don@regexguy.com>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2003-2006 Don Owens
+Copyright (c) 2003-2008 Don Owens
 
 All rights reserved. This program is free software; you can
 redistribute it and/or modify it under the same terms as Perl
@@ -2062,6 +2062,6 @@ itself.
 
 =head1 VERSION
 
-0.11
+0.12
 
 =cut
